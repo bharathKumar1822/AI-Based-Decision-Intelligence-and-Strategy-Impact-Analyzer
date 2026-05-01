@@ -1,0 +1,66 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+# === Virtual Environments ===
+.venv/
+venv/
+env/
+ENV/
+
+# === PyInstaller Build Artifacts ===
+dist/
+build/
+*.spec
+
+# === Environment Variables ===
+.env
+.env.*
+!.env.example
+
+# === IDE / Editor ===
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# === OS Files ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === Logs ===
+*.log
+logs/
+
+# === Node (for frontend) ===
+node_modules/
+.npm
+.vercel
+
+# === Outputs / Generated Files ===
+outputs/
+*.png
+*.jpg
+*.jpeg
+
+# === Android Build ===
+android/.gradle/
+android/build/
+android/local.properties
+
+# === Data files (large datasets) ===
+data/*.csv
+data/*.xlsx
+data/*.json
+
+# === Misc ===
+*.bat
+*.spec
+exe_entry.py
