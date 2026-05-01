@@ -1,0 +1,66 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:        # also allow manual trigger from GitHub UI
+
+jobs:
+  build-apk:
+    name: Build Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Set up Java 17 (required by AGP 8.x)
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      # 3. Make gradlew executable
+      - name: Grant Gradle execute permission
+        run: chmod +x android/gradlew
+
+      # 4. Build debug APK (no signing key needed)
+      - name: Build Debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      # 5. Upload APK as a downloadable artifact
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DecisionIntelligenceAnalyzer-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      # 6. Also create a GitHub Release with the APK attached
+      - name: Create GitHub Release
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: "APK Build #${{ github.run_number }}"
+          body: |
+            ## Decision Intelligence Analyzer — Android APK
+
+            📱 **Install this APK on any Android phone (Android 5.0+)**
+
+            ### How to install:
+            1. Download `app-debug.apk` below
+            2. On your Android phone: Settings → Security → Enable "Unknown Sources"
+            3. Open the downloaded APK to install
+            4. Open the app → it loads the online dashboard
+
+            > Requires internet connection to connect to the cloud server.
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

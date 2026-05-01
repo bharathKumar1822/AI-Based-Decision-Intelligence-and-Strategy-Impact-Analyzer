@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Decision Intelligence Analyzer | AI-Powered Business Strategy</title>
+  <meta name="description" content="AI-Based Decision Intelligence and Strategy Impact Analyzer — analyze business data, detect weaknesses, predict outcomes and compare strategies." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- ───────── SIDEBAR ───────── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">🧠</div>
+      <span class="logo-text">DecisionAI</span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" data-tab="overview" id="nav-overview">
+        <span class="nav-icon">📊</span><span>Overview</span>
+      </a>
+      <a href="#" class="nav-item" data-tab="eda" id="nav-eda">
+        <span class="nav-icon">🔍</span><span>EDA Charts</span>
+      </a>
+      <a href="#" class="nav-item" data-tab="weakness" id="nav-weakness">
+        <span class="nav-icon">⚠️</span><span>Weakness Detection</span>
+      </a>
+      <a href="#" class="nav-item" data-tab="predict" id="nav-predict">
+        <span class="nav-icon">🔮</span><span>ML Predictions</span>
+      </a>
+      <a href="#" class="nav-item" data-tab="strategy" id="nav-strategy">
+        <span class="nav-icon">⚙️</span><span>Strategy & Simulation</span>
+      </a>
+      <a href="#" class="nav-item" data-tab="recommend" id="nav-recommend">
+        <span class="nav-icon">💡</span><span>Recommendations</span>
+      </a>
+      <a href="#" class="nav-item" data-tab="compare" id="nav-compare">
+        <span class="nav-icon">⚖️</span><span>Company Comparison</span>
+      </a>
+      <a href="#" class="nav-item" data-tab="conclusion" id="nav-conclusion">
+        <span class="nav-icon">🏁</span><span>Conclusion & Report</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="version-badge">v2.0 — Full Stack</div>
+    </div>
+  </aside>
+
+  <!-- ───────── MAIN PANEL ───────── -->
+  <main class="main-panel">
+
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Toggle sidebar">☰</button>
+      <h1 class="topbar-title">AI Decision Intelligence Analyzer</h1>
+
+      <div class="dataset-controls">
+        <!-- upload multiple CSVs at once -->
+        <label class="btn btn-secondary btn-sm" for="csv-upload" title="Upload one or more CSV files">
+          📁 Upload CSV(s)
+        </label>
+        <input type="file" id="csv-upload" accept=".csv" multiple style="display:none" />
+
+        <!-- load built-in datasets -->
+        <button class="btn btn-primary btn-sm" id="btn-load-defaults">Load Default Datasets</button>
+
+        <!-- dataset selector (active dataset for analysis tabs) -->
+        <select id="dataset-select" class="select-box" title="Select active dataset for analysis">
+          <option value="">— select dataset —</option>
+        </select>
+      </div>
+    </header>
+
+    <!-- LOADED DATASETS BAR — shows chips for every loaded dataset -->
+    <div class="datasets-bar" id="datasets-bar" style="display:none">
+      <span class="datasets-bar-label">📂 Loaded:</span>
+      <div class="dataset-chips" id="dataset-chips"></div>
+      <button class="btn btn-secondary btn-sm" id="btn-compare-now" onclick="switchTab('compare')">
+        ⚖️ Compare All
+      </button>
+    </div>
+
+    <!-- CONTENT AREA -->
+    <div class="content" id="content">
+
+      <!-- ── OVERVIEW TAB ── -->
+      <section class="tab-section active" id="tab-overview">
+        <div class="section-header">
+          <h2>📊 Overview</h2>
+          <p class="section-sub">High-level snapshot of the selected dataset</p>
+        </div>
+
+        <div id="kpi-cards" class="kpi-grid">
+          <div class="kpi-card skeleton"><div class="kpi-inner"><span class="kpi-label">Total Sales</span><span class="kpi-value">—</span></div></div>
+          <div class="kpi-card skeleton"><div class="kpi-inner"><span class="kpi-label">Total Profit</span><span class="kpi-value">—</span></div></div>
+          <div class="kpi-card skeleton"><div class="kpi-inner"><span class="kpi-label">Total Orders</span><span class="kpi-value">—</span></div></div>
+          <div class="kpi-card skeleton"><div class="kpi-inner"><span class="kpi-label">Customers</span><span class="kpi-value">—</span></div></div>
+        </div>
+
+        <!-- Dataset Info Section (replaces workflow diagram) -->
+        <div id="dataset-info-section"></div>
+      </section>
+
+      <!-- ── EDA TAB ── -->
+      <section class="tab-section" id="tab-eda">
+        <div class="section-header">
+          <h2>🔍 Exploratory Data Analysis</h2>
+          <p class="section-sub">Visual insights from your data</p>
+        </div>
+        <div id="eda-charts" class="chart-grid"></div>
+      </section>
+
+      <!-- ── WEAKNESS TAB ── -->
+      <section class="tab-section" id="tab-weakness">
+        <div class="section-header">
+          <h2>⚠️ Weakness Detection</h2>
+          <p class="section-sub">Areas that need immediate attention</p>
+        </div>
+        <div id="weakness-content"></div>
+      </section>
+
+      <!-- ── PREDICT TAB ── -->
+      <section class="tab-section" id="tab-predict">
+        <div class="section-header">
+          <h2>🔮 ML Profit Predictions</h2>
+          <p class="section-sub">Best model identification · Justification · Comparison · Impact Analysis</p>
+        </div>
+        <div id="predict-content"></div>
+      </section>
+
+      <!-- ── STRATEGY TAB ── -->
+      <section class="tab-section" id="tab-strategy">
+        <div class="section-header">
+          <h2>⚙️ Strategy Analysis & Simulation</h2>
+          <p class="section-sub">What-if analysis with 10 % growth simulation</p>
+        </div>
+        <div id="strategy-content"></div>
+      </section>
+
+      <!-- ── RECOMMEND TAB ── -->
+      <section class="tab-section" id="tab-recommend">
+        <div class="section-header">
+          <h2>💡 Recommendations</h2>
+          <p class="section-sub">AI-generated strategic action plan</p>
+        </div>
+        <div id="recommend-content"></div>
+      </section>
+
+      <!-- ── COMPARE TAB ── -->
+      <section class="tab-section" id="tab-compare">
+        <div class="section-header">
+          <h2>⚖️ Multi-Company Comparison</h2>
+          <p class="section-sub">Compare all loaded datasets side-by-side</p>
+        </div>
+        <div id="compare-content"></div>
+      </section>
+
+      <!-- ── CONCLUSION TAB ── -->
+      <section class="tab-section" id="tab-conclusion">
+        <div class="section-header">
+          <h2>🏁 Conclusion &amp; Final Report</h2>
+          <p class="section-sub">AI-generated project summary, key findings &amp; strategic recommendations</p>
+        </div>
+
+        <!-- Generate button -->
+        <div style="margin-bottom:24px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-primary" id="btn-gen-conclusion">⚡ Generate Conclusion</button>
+          <button class="btn btn-secondary" id="btn-print-conclusion" style="display:none">🖨️ Print / Save as PDF</button>
+          <span id="conclusion-status" style="color:var(--text-secondary);font-size:0.85rem"></span>
+        </div>
+
+        <div id="conclusion-content">
+          <div class="empty-state">
+            <div class="empty-icon">🏁</div>
+            <h3>Ready to Generate</h3>
+            <p>Load your datasets and click <strong>"Generate Conclusion"</strong> above.</p>
+          </div>
+        </div>
+      </section>
+
+    </div><!-- /content -->
+  </main>
+
+  <!-- LOADING OVERLAY -->
+  <div class="loading-overlay hidden" id="loading-overlay">
+    <div class="spinner"></div>
+    <p id="loading-msg">Analyzing…</p>
+  </div>
+
+  <!-- TOAST -->
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
