@@ -55,10 +55,9 @@ android/.gradle/
 android/build/
 android/local.properties
 
-# === Data files (large datasets) ===
-data/*.csv
-data/*.xlsx
-data/*.json
+# === Data files (large datasets — tracked intentionally for Render) ===
+# data/*.csv   <-- intentionally NOT ignored; required by backend on Render
+
 
 # === Misc ===
 *.bat

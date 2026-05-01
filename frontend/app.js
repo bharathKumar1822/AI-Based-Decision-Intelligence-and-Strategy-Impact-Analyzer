@@ -2,7 +2,7 @@
    app.js  —  Decision Intelligence Analyzer frontend logic
    ============================================================ */
 
-const API = "http://127.0.0.1:5000/api";
+const API = "https://decision-intelligence-analyzer.onrender.com/api";
 
 // ── State ──────────────────────────────────────────────────
 let activeDataset = "";
