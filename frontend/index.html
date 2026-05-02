@@ -21,6 +21,9 @@
       <a href="#" class="nav-item active" data-tab="overview" id="nav-overview">
         <span class="nav-icon">📊</span><span>Overview</span>
       </a>
+      <a href="#" class="nav-item" data-tab="engine" id="nav-engine">
+        <span class="nav-icon">🧠</span><span>Decision Engine</span>
+      </a>
       <a href="#" class="nav-item" data-tab="eda" id="nav-eda">
         <span class="nav-icon">🔍</span><span>EDA Charts</span>
       </a>
@@ -30,11 +33,20 @@
       <a href="#" class="nav-item" data-tab="predict" id="nav-predict">
         <span class="nav-icon">🔮</span><span>ML Predictions</span>
       </a>
+      <a href="#" class="nav-item" data-tab="explainability" id="nav-explainability">
+        <span class="nav-icon">🔬</span><span>Explainability</span>
+      </a>
       <a href="#" class="nav-item" data-tab="strategy" id="nav-strategy">
         <span class="nav-icon">⚙️</span><span>Strategy & Simulation</span>
       </a>
+      <a href="#" class="nav-item" data-tab="anomaly" id="nav-anomaly">
+        <span class="nav-icon">🚨</span><span>Risk & Anomalies</span>
+      </a>
       <a href="#" class="nav-item" data-tab="recommend" id="nav-recommend">
         <span class="nav-icon">💡</span><span>Recommendations</span>
+      </a>
+      <a href="#" class="nav-item" data-tab="dataquality" id="nav-dataquality">
+        <span class="nav-icon">🧹</span><span>Data Quality</span>
       </a>
       <a href="#" class="nav-item" data-tab="compare" id="nav-compare">
         <span class="nav-icon">⚖️</span><span>Company Comparison</span>
@@ -45,7 +57,8 @@
     </nav>
 
     <div class="sidebar-footer">
-      <div class="version-badge">v2.0 — Full Stack</div>
+      <div class="version-badge">v3.0 — Enterprise Edition</div>
+      <div id="auth-user-display" style="font-size:0.72rem;color:var(--accent2);text-align:center;margin-top:6px;display:none"></div>
     </div>
   </aside>
 
@@ -58,23 +71,20 @@
       <h1 class="topbar-title">AI Decision Intelligence Analyzer</h1>
 
       <div class="dataset-controls">
-        <!-- upload multiple CSVs at once -->
-        <label class="btn btn-secondary btn-sm" for="csv-upload" title="Upload one or more CSV files">
+        <label class="btn btn-secondary btn-sm" for="csv-upload" title="Upload CSV files">
           📁 Upload CSV(s)
         </label>
         <input type="file" id="csv-upload" accept=".csv" multiple style="display:none" />
-
-        <!-- load built-in datasets -->
         <button class="btn btn-primary btn-sm" id="btn-load-defaults">Load Default Datasets</button>
-
-        <!-- dataset selector (active dataset for analysis tabs) -->
-        <select id="dataset-select" class="select-box" title="Select active dataset for analysis">
+        <select id="dataset-select" class="select-box" title="Select active dataset">
           <option value="">— select dataset —</option>
         </select>
+        <button class="btn btn-secondary btn-sm" id="btn-auth-open">🔐 Login</button>
+        <div id="live-indicator" class="live-dot" title="Backend live"></div>
       </div>
     </header>
 
-    <!-- LOADED DATASETS BAR — shows chips for every loaded dataset -->
+    <!-- LOADED DATASETS BAR -->
     <div class="datasets-bar" id="datasets-bar" style="display:none">
       <span class="datasets-bar-label">📂 Loaded:</span>
       <div class="dataset-chips" id="dataset-chips"></div>
@@ -93,15 +103,31 @@
           <p class="section-sub">High-level snapshot of the selected dataset</p>
         </div>
 
+        <!-- KPI Filter Bar -->
+        <div class="kpi-filter-bar" id="kpi-filter-bar" style="display:none">
+          <select id="filter-region"   class="select-box" style="font-size:0.8rem"><option value="">All Regions</option></select>
+          <select id="filter-category" class="select-box" style="font-size:0.8rem"><option value="">All Categories</option></select>
+          <select id="filter-segment"  class="select-box" style="font-size:0.8rem"><option value="">All Segments</option></select>
+          <button class="btn btn-primary btn-sm" id="btn-apply-filters">⚡ Apply Filters</button>
+          <button class="btn btn-secondary btn-sm" id="btn-reset-filters">↺ Reset</button>
+        </div>
+
         <div id="kpi-cards" class="kpi-grid">
           <div class="kpi-card skeleton"><div class="kpi-inner"><span class="kpi-label">Total Sales</span><span class="kpi-value">—</span></div></div>
           <div class="kpi-card skeleton"><div class="kpi-inner"><span class="kpi-label">Total Profit</span><span class="kpi-value">—</span></div></div>
           <div class="kpi-card skeleton"><div class="kpi-inner"><span class="kpi-label">Total Orders</span><span class="kpi-value">—</span></div></div>
           <div class="kpi-card skeleton"><div class="kpi-inner"><span class="kpi-label">Customers</span><span class="kpi-value">—</span></div></div>
         </div>
-
-        <!-- Dataset Info Section (replaces workflow diagram) -->
         <div id="dataset-info-section"></div>
+      </section>
+
+      <!-- ── DECISION ENGINE TAB ── -->
+      <section class="tab-section" id="tab-engine">
+        <div class="section-header">
+          <h2>🧠 AI Decision Engine</h2>
+          <p class="section-sub">Ranked actionable strategies with expected ROI, risk level & time-to-impact</p>
+        </div>
+        <div id="engine-content"></div>
       </section>
 
       <!-- ── EDA TAB ── -->
@@ -131,13 +157,31 @@
         <div id="predict-content"></div>
       </section>
 
+      <!-- ── EXPLAINABILITY TAB ── -->
+      <section class="tab-section" id="tab-explainability">
+        <div class="section-header">
+          <h2>🔬 Model Explainability</h2>
+          <p class="section-sub">Feature importance & SHAP-style profit driver analysis</p>
+        </div>
+        <div id="explainability-content"></div>
+      </section>
+
       <!-- ── STRATEGY TAB ── -->
       <section class="tab-section" id="tab-strategy">
         <div class="section-header">
           <h2>⚙️ Strategy Analysis & Simulation</h2>
-          <p class="section-sub">What-if analysis with 10 % growth simulation</p>
+          <p class="section-sub">What-if analysis with dynamic growth simulation</p>
         </div>
         <div id="strategy-content"></div>
+      </section>
+
+      <!-- ── ANOMALY TAB ── -->
+      <section class="tab-section" id="tab-anomaly">
+        <div class="section-header">
+          <h2>🚨 Risk & Anomaly Detection</h2>
+          <p class="section-sub">Outliers, sudden drops & real-time alert system</p>
+        </div>
+        <div id="anomaly-content"></div>
       </section>
 
       <!-- ── RECOMMEND TAB ── -->
@@ -147,6 +191,15 @@
           <p class="section-sub">AI-generated strategic action plan</p>
         </div>
         <div id="recommend-content"></div>
+      </section>
+
+      <!-- ── DATA QUALITY TAB ── -->
+      <section class="tab-section" id="tab-dataquality">
+        <div class="section-header">
+          <h2>🧹 Smart Data Processing</h2>
+          <p class="section-sub">Auto-cleaning insights, quality score & feature engineering suggestions</p>
+        </div>
+        <div id="dataquality-content"></div>
       </section>
 
       <!-- ── COMPARE TAB ── -->
@@ -165,10 +218,10 @@
           <p class="section-sub">AI-generated project summary, key findings &amp; strategic recommendations</p>
         </div>
 
-        <!-- Generate button -->
         <div style="margin-bottom:24px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
           <button class="btn btn-primary" id="btn-gen-conclusion">⚡ Generate Conclusion</button>
           <button class="btn btn-secondary" id="btn-print-conclusion" style="display:none">🖨️ Print / Save as PDF</button>
+          <button class="btn btn-secondary" id="btn-export-report" style="display:none">📄 Export Report</button>
           <span id="conclusion-status" style="color:var(--text-secondary);font-size:0.85rem"></span>
         </div>
 
@@ -192,6 +245,47 @@
 
   <!-- TOAST -->
   <div class="toast hidden" id="toast"></div>
+
+  <!-- ── AI CHAT WIDGET ── -->
+  <div class="chat-widget" id="chat-widget">
+    <button class="chat-toggle" id="chat-toggle" title="AI Assistant">💬</button>
+    <div class="chat-panel hidden" id="chat-panel">
+      <div class="chat-header">
+        <span>🤖 AI Assistant</span>
+        <button class="chat-close" id="chat-close">✕</button>
+      </div>
+      <div class="chat-messages" id="chat-messages">
+        <div class="chat-msg bot">👋 Hi! Ask me anything about your data.<br><em style="font-size:0.78rem;opacity:0.7">e.g. "Why did profit drop?" or "Best strategy?"</em></div>
+      </div>
+      <div class="chat-input-row">
+        <input type="text" id="chat-input" class="chat-input" placeholder="Ask a question…" />
+        <button class="btn btn-primary btn-sm" id="chat-send">➤</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── AUTH MODAL ── -->
+  <div class="modal-overlay hidden" id="auth-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span>🔐 Sign In</span>
+        <button class="modal-close" id="auth-modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-secondary);font-size:0.82rem;margin-bottom:16px">
+          Demo credentials: <code>admin/admin123</code> · <code>analyst/analyst123</code> · <code>viewer/viewer123</code>
+        </p>
+        <input type="text"     id="auth-username" class="auth-input" placeholder="Username" autocomplete="off" />
+        <input type="password" id="auth-password" class="auth-input" placeholder="Password" />
+        <button class="btn btn-primary" style="width:100%;margin-top:8px" id="btn-auth-login">Login</button>
+        <div id="auth-error" style="color:var(--danger);font-size:0.82rem;margin-top:8px;display:none"></div>
+      </div>
+      <div id="auth-role-display" style="display:none;padding:12px 20px;border-top:1px solid var(--border)">
+        <span id="auth-role-badge" class="role-badge"></span>
+        <button class="btn btn-secondary btn-sm" id="btn-auth-logout" style="margin-left:8px">Logout</button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

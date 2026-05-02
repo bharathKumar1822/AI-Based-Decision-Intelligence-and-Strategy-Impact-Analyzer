@@ -848,3 +848,396 @@ async function loadConclusion() {
 
 // Wire up conclusion tab load on switch
 const _origSwitchTab = switchTab;
+
+// ── Extend loadTab for new modules ─────────────────────────
+const _origLoadTab = loadTab;
+function loadTab(tab) {
+  switch(tab) {
+    case "engine":        loadEngine();        break;
+    case "anomaly":       loadAnomaly();       break;
+    case "explainability":loadExplainability();break;
+    case "dataquality":   loadDataQuality();   break;
+    default: _origLoadTab(tab);
+  }
+}
+
+// ── DECISION ENGINE ─────────────────────────────────────────
+async function loadEngine() {
+  const c = document.getElementById("engine-content");
+  if (!activeDataset) { c.innerHTML = emptyState("🧠","No dataset selected","Load and select a dataset first."); return; }
+  showLoading("Running Decision Engine…");
+  try {
+    const data = await apiFetch(`/decision-engine/${encodeURIComponent(activeDataset)}`);
+    const { decisions, top_strategy, total_strategies } = data;
+
+    const topHtml = `
+      <div class="card" style="background:linear-gradient(135deg,rgba(74,222,128,0.1),rgba(108,99,255,0.06));border-color:rgba(74,222,128,0.3);margin-bottom:22px">
+        <div class="card-title">🏆 Top Recommended Strategy</div>
+        <div style="font-family:'Space Grotesk',sans-serif;font-size:1.2rem;font-weight:700;margin-bottom:10px">${top_strategy.strategy || "—"}</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <span class="engine-badge roi">📈 ${top_strategy.expected_roi || ""}</span>
+          <span class="engine-badge time">⏱ ${top_strategy.time_to_impact || ""}</span>
+          <span class="engine-badge risk">⚠ Risk: ${top_strategy.risk_level || ""}</span>
+        </div>
+        <p style="color:var(--text-secondary);font-size:0.85rem;margin-top:12px">${top_strategy.rationale || ""}</p>
+      </div>`;
+
+    const cards = decisions.map(d => `
+      <div class="engine-card priority-${(d.priority||"medium").toLowerCase()}">
+        <div class="engine-rank">#${d.rank}</div>
+        <div class="engine-strategy">${d.strategy}</div>
+        <div class="engine-meta">
+          <span class="engine-badge roi">📈 ${d.expected_roi}</span>
+          <span class="engine-badge time">⏱ ${d.time_to_impact}</span>
+          <span class="engine-badge risk">⚠ ${d.risk_level} Risk</span>
+          <span class="engine-badge" style="background:rgba(108,99,255,0.12);color:var(--accent);border:1px solid rgba(108,99,255,0.3)">
+            💰 +${fmt(d.revenue_impact)}
+          </span>
+        </div>
+        <div class="engine-confidence-bar">
+          <div class="engine-confidence-fill" style="width:${d.confidence}%"></div>
+        </div>
+        <div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:8px">Confidence: ${d.confidence}%</div>
+        <div class="engine-rationale">${d.rationale}</div>
+      </div>`).join("");
+
+    c.innerHTML = topHtml + `<div class="engine-grid">${cards}</div>`;
+  } catch(e) {
+    c.innerHTML = emptyState("❌","Engine error",e.message);
+  } finally { hideLoading(); }
+}
+
+// ── ANOMALY DETECTION ───────────────────────────────────────
+async function loadAnomaly() {
+  const c = document.getElementById("anomaly-content");
+  if (!activeDataset) { c.innerHTML = emptyState("🚨","No dataset selected","Load and select a dataset first."); return; }
+  showLoading("Scanning for anomalies…");
+  try {
+    const data = await apiFetch(`/anomaly/${encodeURIComponent(activeDataset)}`);
+    const { anomalies, sudden_drops, alerts, risk_score } = data;
+
+    const scoreClass = risk_score < 20 ? "low" : risk_score < 50 ? "medium" : "high";
+    const scoreLabel = risk_score < 20 ? "Low Risk" : risk_score < 50 ? "Moderate Risk" : "High Risk";
+
+    const scoreHtml = `
+      <div class="risk-score-ring">
+        <div>
+          <div class="risk-score-num ${scoreClass}">${risk_score}</div>
+          <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:4px">Risk Score / 100</div>
+        </div>
+        <div>
+          <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px">${scoreLabel}</div>
+          <div style="font-size:0.83rem;color:var(--text-secondary)">${anomalies.length} anomaly type(s) · ${sudden_drops.length} profit drop(s) detected</div>
+        </div>
+      </div>`;
+
+    const alertsHtml = alerts.length ? `
+      <div class="card mt-4">
+        <div class="card-title">🔔 Active Alerts</div>
+        <div class="alert-list">${alerts.map(a => `<div class="alert-item">${a}</div>`).join("")}</div>
+      </div>` : "";
+
+    const anomHtml = anomalies.length ? `
+      <div class="card mt-4">
+        <div class="card-title">📊 Statistical Outliers (Z-score > 3σ)</div>
+        <div class="anomaly-grid">${anomalies.map(a => `
+          <div class="anomaly-card ${a.severity}">
+            <div class="anomaly-header">
+              <span class="anomaly-col">${a.column}</span>
+              <span class="anomaly-sev ${a.severity}">${a.severity}</span>
+            </div>
+            <div class="anomaly-desc">${a.description}</div>
+            <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:6px">Max deviation: <strong>${fmt(a.max_deviation)}</strong></div>
+          </div>`).join("")}
+        </div>
+      </div>` : "";
+
+    const dropsHtml = sudden_drops.length ? `
+      <div class="card mt-4">
+        <div class="card-title">📉 Sudden Profit Drops (>25% month-over-month)</div>
+        <div class="compare-table-wrap">
+          <table class="compare-table">
+            <thead><tr><th>Period</th><th>From</th><th>To</th><th>Drop %</th></tr></thead>
+            <tbody>${sudden_drops.map(d => `
+              <tr>
+                <td>${d.period}</td>
+                <td>${fmt(d.from_val)}</td>
+                <td style="color:var(--danger)">${fmt(d.to_val)}</td>
+                <td style="color:var(--danger);font-weight:700">${d.drop_pct}%</td>
+              </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>` : "";
+
+    c.innerHTML = scoreHtml + alertsHtml + anomHtml + dropsHtml
+      || emptyState("✅","No anomalies detected","Your dataset looks healthy!");
+  } catch(e) {
+    c.innerHTML = emptyState("❌","Anomaly error",e.message);
+  } finally { hideLoading(); }
+}
+
+// ── MODEL EXPLAINABILITY ────────────────────────────────────
+async function loadExplainability() {
+  const c = document.getElementById("explainability-content");
+  if (!activeDataset) { c.innerHTML = emptyState("🔬","No dataset selected","Load and select a dataset first."); return; }
+  showLoading("Computing feature importance…");
+  try {
+    const data = await apiFetch(`/explain/${encodeURIComponent(activeDataset)}`);
+    const { feature_importance, directions, chart, insight } = data;
+
+    const bars = feature_importance.map(f => {
+      const dir = directions[f.feature] || "positive";
+      return `<div class="explain-bar-row">
+        <span class="explain-label">${f.feature}</span>
+        <div class="explain-bar-wrap">
+          <div class="explain-bar-fill ${dir === "positive" ? "pos" : "neg"}" style="width:${f.pct}%"></div>
+        </div>
+        <span class="explain-pct" style="color:${dir==="positive"?"var(--accent)":"var(--danger)"}">${f.pct}%</span>
+        <span style="font-size:0.75rem;color:var(--text-secondary)">${dir === "positive" ? "↑ Positive" : "↓ Negative"}</span>
+      </div>`;
+    }).join("");
+
+    c.innerHTML = `
+      <div class="explain-insight">💡 ${insight}</div>
+      <div class="card">
+        <div class="card-title">📊 Feature Importance Breakdown</div>
+        <div class="explain-bars">${bars}</div>
+      </div>
+      <div class="chart-card mt-4">
+        <h4>📈 Feature Importance Chart (Random Forest)</h4>
+        <img src="data:image/png;base64,${chart}" alt="Feature Importance" style="width:100%;max-width:500px" />
+      </div>
+      <div class="card mt-4" style="background:rgba(108,99,255,0.06);border-color:rgba(108,99,255,0.2)">
+        <div class="card-title">📖 How to Read This</div>
+        <p style="font-size:0.86rem;color:var(--text-secondary);line-height:1.7">
+          Feature importance shows which input variables the ML model relies on most to predict profit.
+          A <strong style="color:var(--accent)">positive direction</strong> means higher values of this feature correlate with higher profit.
+          A <strong style="color:var(--danger)">negative direction</strong> means higher values correlate with lower profit.
+          This is a SHAP-style approximation using Random Forest feature importances and Pearson correlation.
+        </p>
+      </div>`;
+  } catch(e) {
+    c.innerHTML = emptyState("❌","Explainability error",e.message);
+  } finally { hideLoading(); }
+}
+
+// ── DATA QUALITY ────────────────────────────────────────────
+async function loadDataQuality() {
+  const c = document.getElementById("dataquality-content");
+  if (!activeDataset) { c.innerHTML = emptyState("🧹","No dataset selected","Load and select a dataset first."); return; }
+  showLoading("Auditing data quality…");
+  try {
+    const data = await apiFetch(`/smart-process/${encodeURIComponent(activeDataset)}`);
+    const { quality_score, total_rows, total_columns, issues, feature_suggestions, recommended_model, model_reason, status } = data;
+
+    const qClass = quality_score >= 80 ? "good" : quality_score >= 50 ? "average" : "bad";
+    const qLabel = quality_score >= 80 ? "✅ Good Quality" : quality_score >= 50 ? "⚠️ Needs Attention" : "🔴 Poor Quality";
+
+    const issueHtml = issues.length ? issues.map(i => {
+      if (i.type === "missing_values") return `<div class="quality-issue">⚠️ <strong>${i.column}</strong>: ${i.count} missing values (${i.pct}%)</div>`;
+      if (i.type === "duplicates")     return `<div class="quality-issue">🔁 ${i.count} duplicate rows detected</div>`;
+      if (i.type === "constant_column") return `<div class="quality-issue">📌 Column <strong>${i.column}</strong> has only one unique value</div>`;
+      return "";
+    }).join("") : `<div style="color:var(--success);font-size:0.87rem">✅ No data quality issues detected.</div>`;
+
+    const suggHtml = feature_suggestions.map(s => `
+      <div class="quality-suggestion">
+        <strong>${s.feature}</strong>
+        <code>${s.formula}</code>
+        <p>${s.reason}</p>
+      </div>`).join("");
+
+    c.innerHTML = `
+      <div class="quality-score-box">
+        <div class="quality-score-val ${qClass}">${quality_score}</div>
+        <div>
+          <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px">${qLabel}</div>
+          <div style="color:var(--text-secondary);font-size:0.83rem">${fmtN(total_rows)} rows · ${total_columns} columns</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">🔍 Data Issues</div>
+        <div class="quality-issues">${issueHtml}</div>
+      </div>
+      <div class="card mt-4">
+        <div class="card-title">✨ Suggested New Features</div>
+        <div class="quality-suggestions">${suggHtml || "<p style='color:var(--text-secondary);font-size:0.85rem'>No suggestions available.</p>"}</div>
+      </div>
+      <div class="card mt-4" style="background:rgba(108,99,255,0.06);border-color:rgba(108,99,255,0.2)">
+        <div class="card-title">🤖 Recommended Model for This Dataset</div>
+        <div style="font-size:1.1rem;font-weight:700;color:var(--accent);margin-bottom:6px">${recommended_model}</div>
+        <p style="font-size:0.85rem;color:var(--text-secondary)">${model_reason}</p>
+      </div>`;
+  } catch(e) {
+    c.innerHTML = emptyState("❌","Data Quality error",e.message);
+  } finally { hideLoading(); }
+}
+
+// ── KPI FILTERS ─────────────────────────────────────────────
+async function loadKpiFilters() {
+  if (!activeDataset) return;
+  const data = await apiFetch(`/kpi-filters/${encodeURIComponent(activeDataset)}`);
+  const opts = data.filter_options;
+  const bar  = document.getElementById("kpi-filter-bar");
+  bar.style.display = "flex";
+
+  const populate = (selectId, values) => {
+    const sel = document.getElementById(selectId);
+    const cur = sel.value;
+    sel.innerHTML = `<option value="">All ${selectId.replace("filter-","")}</option>`;
+    values.forEach(v => { const o = document.createElement("option"); o.value = o.textContent = v; if (v===cur) o.selected=true; sel.appendChild(o); });
+  };
+  populate("filter-region",   opts.regions    || []);
+  populate("filter-category", opts.categories || []);
+  populate("filter-segment",  opts.segments   || []);
+
+  document.getElementById("btn-apply-filters").onclick = async () => {
+    const r = document.getElementById("filter-region").value;
+    const cat = document.getElementById("filter-category").value;
+    const seg = document.getElementById("filter-segment").value;
+    const params = new URLSearchParams();
+    if (r)   params.set("region",   r);
+    if (cat) params.set("category", cat);
+    if (seg) params.set("segment",  seg);
+    const filtered = await apiFetch(`/kpi-filters/${encodeURIComponent(activeDataset)}?${params}`);
+    const grid = document.getElementById("kpi-cards");
+    grid.innerHTML =
+      kpiCard("💰","Total Sales",fmt(filtered.total_sales),"#6C63FF") +
+      kpiCard("📈","Total Profit",fmt(filtered.total_profit),filtered.total_profit>=0?"#4ade80":"#FF6584") +
+      kpiCard("📦","Total Orders",fmtN(filtered.total_orders),"#43CBFF") +
+      kpiCard("💹","Profit Margin",`${filtered.profit_margin}%`,"#F7971E");
+    showToast(`✅ Filters applied — ${fmtN(filtered.rows_after_filter)} rows`,"success");
+  };
+  document.getElementById("btn-reset-filters").onclick = () => {
+    ["filter-region","filter-category","filter-segment"].forEach(id => document.getElementById(id).value="");
+    loadOverview();
+  };
+}
+
+// ── AI CHAT WIDGET ──────────────────────────────────────────
+const chatToggle  = document.getElementById("chat-toggle");
+const chatPanel   = document.getElementById("chat-panel");
+const chatClose   = document.getElementById("chat-close");
+const chatInput   = document.getElementById("chat-input");
+const chatSend    = document.getElementById("chat-send");
+const chatMsgs    = document.getElementById("chat-messages");
+
+chatToggle.addEventListener("click", () => chatPanel.classList.toggle("hidden"));
+chatClose.addEventListener("click",  () => chatPanel.classList.add("hidden"));
+
+function appendChat(msg, role) {
+  const el = document.createElement("div");
+  el.className = `chat-msg ${role}`;
+  el.innerHTML = msg;
+  chatMsgs.appendChild(el);
+  chatMsgs.scrollTop = chatMsgs.scrollHeight;
+}
+
+async function sendChat() {
+  const q = chatInput.value.trim();
+  if (!q) return;
+  if (!activeDataset) { appendChat("⚠️ Please load and select a dataset first.", "bot"); return; }
+  appendChat(q, "user");
+  chatInput.value = "";
+  appendChat("⏳ Thinking…", "bot");
+  try {
+    const data = await apiFetch(`/chat/${encodeURIComponent(activeDataset)}`, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ question: q })
+    });
+    chatMsgs.lastChild.innerHTML = data.answer;
+  } catch(e) {
+    chatMsgs.lastChild.innerHTML = `❌ ${e.message}`;
+  }
+}
+
+chatSend.addEventListener("click", sendChat);
+chatInput.addEventListener("keydown", e => { if (e.key === "Enter") sendChat(); });
+
+// ── AUTH MODAL ──────────────────────────────────────────────
+let currentRole = null;
+const authModal  = document.getElementById("auth-modal");
+const authOpen   = document.getElementById("btn-auth-open");
+const authClose  = document.getElementById("auth-modal-close");
+const authLogin  = document.getElementById("btn-auth-login");
+const authLogout = document.getElementById("btn-auth-logout");
+const authError  = document.getElementById("auth-error");
+
+authOpen.addEventListener("click",  () => authModal.classList.remove("hidden"));
+authClose.addEventListener("click", () => authModal.classList.add("hidden"));
+authModal.addEventListener("click", e => { if (e.target === authModal) authModal.classList.add("hidden"); });
+
+authLogin.addEventListener("click", async () => {
+  const username = document.getElementById("auth-username").value.trim();
+  const password = document.getElementById("auth-password").value;
+  authError.style.display = "none";
+  try {
+    const data = await apiFetch("/auth/login", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ username, password })
+    });
+    currentRole = data.role;
+    document.getElementById("auth-role-badge").textContent = `${data.username} — ${data.role.toUpperCase()}`;
+    document.getElementById("auth-role-display").style.display = "block";
+    document.getElementById("auth-user-display").textContent = `👤 ${data.username} (${data.role})`;
+    document.getElementById("auth-user-display").style.display = "block";
+    authOpen.textContent = `👤 ${data.username}`;
+    document.querySelector(".modal-body").style.display = "none";
+    showToast(`✅ Welcome ${data.username}! Role: ${data.role}`,"success");
+  } catch(e) {
+    authError.textContent = "❌ " + e.message;
+    authError.style.display = "block";
+  }
+});
+
+authLogout.addEventListener("click", () => {
+  currentRole = null;
+  document.getElementById("auth-role-display").style.display = "none";
+  document.getElementById("auth-user-display").style.display = "none";
+  document.querySelector(".modal-body").style.display = "block";
+  authOpen.textContent = "🔐 Login";
+  authModal.classList.add("hidden");
+  document.getElementById("auth-username").value = "";
+  document.getElementById("auth-password").value = "";
+  showToast("Logged out","info");
+});
+
+// ── EXPORT REPORT (PDF via print) ──────────────────────────
+const exportBtn = document.getElementById("btn-export-report");
+if (exportBtn) {
+  exportBtn.addEventListener("click", async () => {
+    if (!activeDataset) { showToast("Select a dataset first","info"); return; }
+    try {
+      const meta = await apiFetch(`/report-meta/${encodeURIComponent(activeDataset)}`);
+      showToast(`📄 Preparing report: ${meta.report_title}`,"info");
+      setTimeout(() => window.print(), 600);
+    } catch(e) {
+      showToast("❌ " + e.message, "error");
+    }
+  });
+}
+
+// ── LIVE REFRESH STATUS ─────────────────────────────────────
+const liveDot = document.getElementById("live-indicator");
+async function checkLiveStatus() {
+  try {
+    const data = await apiFetch("/refresh-status");
+    liveDot.classList.remove("offline");
+    liveDot.title = `Backend live · ${data.datasets_loaded} dataset(s) · ${data.server_time}`;
+  } catch {
+    liveDot.classList.add("offline");
+    liveDot.title = "Backend offline";
+  }
+}
+checkLiveStatus();
+setInterval(checkLiveStatus, 30000);
+
+// ── PATCH loadOverview to include KPI filters ───────────────
+const _origLoadOverview = loadOverview;
+async function loadOverview() {
+  await _origLoadOverview();
+  if (activeDataset) loadKpiFilters();
+}

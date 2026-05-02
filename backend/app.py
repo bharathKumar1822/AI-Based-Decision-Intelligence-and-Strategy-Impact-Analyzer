@@ -7,8 +7,12 @@ for the AI-Based Decision Intelligence & Strategy Impact Analyzer
 import os
 import sys
 import io
+import re
 import base64
+import hashlib
+import hmac
 import traceback
+import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -26,6 +30,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, r2_score
+from scipy import stats as sp_stats
 
 sns.set_style("whitegrid")
 
@@ -1093,6 +1098,482 @@ def static_files(filename):
 
 
 # ──────────────────────────────────────────────────────────────────
+# NEW MODULE 1: Risk & Anomaly Detection
+# ──────────────────────────────────────────────────────────────────
+
+@app.route("/api/anomaly/<name>", methods=["GET"])
+def anomaly(name):
+    if name not in datasets:
+        return jsonify({"error": "Dataset not found"}), 404
+    df = datasets[name]
+    anomalies = []
+    alerts = []
+
+    # Z-score anomaly detection on numeric columns
+    num_cols = [c for c in ["Sales", "Profit", "Quantity", "Discount"] if c in df.columns]
+    for col in num_cols:
+        z = np.abs(sp_stats.zscore(df[col].dropna()))
+        outlier_count = int((z > 3).sum())
+        if outlier_count > 0:
+            worst_val = float(df[col][z > 3].abs().max())
+            anomalies.append({
+                "column": col,
+                "outlier_count": outlier_count,
+                "max_deviation": round(worst_val, 2),
+                "severity": "critical" if outlier_count > 10 else "warning",
+                "description": f"{outlier_count} outlier(s) in {col} deviate >3σ from mean."
+            })
+
+    # Sudden profit drop detection (monthly)
+    drops = []
+    if {"Order Date", "Profit"}.issubset(df.columns):
+        df2 = df.dropna(subset=["Order Date"]).copy()
+        df2["Month"] = df2["Order Date"].dt.to_period("M")
+        monthly = df2.groupby("Month")["Profit"].sum().sort_index()
+        for i in range(1, len(monthly)):
+            prev, curr = monthly.iloc[i-1], monthly.iloc[i]
+            if prev > 0 and (curr - prev) / abs(prev) < -0.25:
+                drops.append({
+                    "period": str(monthly.index[i]),
+                    "drop_pct": round((curr - prev) / abs(prev) * 100, 1),
+                    "from_val": round(float(prev), 2),
+                    "to_val": round(float(curr), 2)
+                })
+                alerts.append(f"⚠️ Profit dropped {abs(round((curr-prev)/abs(prev)*100,1))}% in {monthly.index[i]}")
+
+    # High-discount risk
+    if "Discount" in df.columns:
+        high_disc = df[df["Discount"] > 0.4]
+        if len(high_disc) > 0:
+            alerts.append(f"🔴 {len(high_disc)} orders have discounts >40% — high margin erosion risk")
+
+    return jsonify({
+        "anomalies": anomalies,
+        "sudden_drops": drops,
+        "alerts": alerts,
+        "total_anomalies": len(anomalies),
+        "risk_score": min(100, len(anomalies) * 15 + len(drops) * 20)
+    })
+
+
+# ──────────────────────────────────────────────────────────────────
+# NEW MODULE 2: AI Chat Assistant
+# ──────────────────────────────────────────────────────────────────
+
+@app.route("/api/chat/<name>", methods=["POST"])
+def chat(name):
+    if name not in datasets:
+        return jsonify({"error": "Dataset not found"}), 404
+    df = datasets[name]
+    body = request.get_json(silent=True) or {}
+    question = str(body.get("question", "")).lower().strip()
+
+    if name not in ml_cache:
+        ml_cache[name] = run_ml(df)
+    ml = ml_cache[name]
+    w  = detect_weaknesses(df)
+
+    total_profit = round(float(df["Profit"].sum()), 2) if "Profit" in df.columns else 0
+    total_sales  = round(float(df["Sales"].sum()),  2) if "Sales"  in df.columns else 0
+
+    # Pattern-based NLP routing
+    answer = ""
+    if re.search(r"profit.*(drop|fall|declin|low)", question) or re.search(r"why.*profit", question):
+        loss_prods = list(w.get("loss_making_products", {}).keys())[:3]
+        low_reg    = list(w.get("low_performing_regions", {}).keys())
+        parts = []
+        if loss_prods:
+            parts.append(f"loss-making sub-categories ({', '.join(loss_prods)})")
+        if low_reg:
+            parts.append(f"underperforming regions ({', '.join(low_reg)})")
+        if "Discount" in df.columns and df["Discount"].corr(df["Profit"]) < -0.1:
+            parts.append("excessive discounting negatively correlated with profit")
+        answer = ("Profit decline is likely caused by: " + "; ".join(parts) + "." if parts
+                  else "No significant profit decline drivers detected in current data.")
+
+    elif re.search(r"best strat", question) or re.search(r"what.*do|recommend|suggest|improve", question):
+        bm = ml.get("best_model", "Random Forest")
+        answer = (f"Top strategies: 1) Deploy {bm} for profit forecasting. "
+                  f"2) Eliminate loss-making sub-categories. "
+                  f"3) Target underperforming regions with localized campaigns. "
+                  f"4) Reduce discounts above 40% threshold.")
+
+    elif re.search(r"total (sales|revenue)", question):
+        answer = f"Total sales for {name}: ${total_sales:,.2f}"
+
+    elif re.search(r"total profit", question):
+        answer = f"Total profit for {name}: ${total_profit:,.2f}"
+
+    elif re.search(r"best model|ml model|algorithm", question):
+        bm = ml.get("best_model", "N/A")
+        bk = ml.get("best_model_key", "")
+        r2 = ml.get(bk, {}).get("r2", 0) if bk else 0
+        answer = f"The best ML model is {bm} with R²={r2:.4f} (lowest MSE among 3 evaluated models)."
+
+    elif re.search(r"risk|anomal|outlier", question):
+        answer = (f"Run the Risk & Anomaly tab for full analysis. Quick summary: "
+                  f"high discounts (>40%) and sudden monthly profit drops are the key risk signals.")
+
+    elif re.search(r"region", question):
+        if "Region" in df.columns and "Sales" in df.columns:
+            top_r = df.groupby("Region")["Sales"].sum().idxmax()
+            answer = f"Top-performing region by sales: {top_r}."
+        else:
+            answer = "Region data not available in this dataset."
+
+    elif re.search(r"categor", question):
+        if "Category" in df.columns and "Profit" in df.columns:
+            top_c = df.groupby("Category")["Profit"].sum().idxmax()
+            answer = f"Highest-profit category: {top_c}."
+        else:
+            answer = "Category data not available."
+
+    elif re.search(r"rows|records|size|how many", question):
+        answer = f"Dataset '{name}' has {len(df):,} rows and {len(df.columns)} columns."
+
+    else:
+        answer = (f"I can answer questions about profit trends, strategies, models, regions, "
+                  f"categories, risks, and data size for '{name}'. Try: 'Why did profit drop?' "
+                  f"or 'What is the best strategy?'")
+
+    return jsonify({
+        "question": body.get("question", ""),
+        "answer": answer,
+        "dataset": name,
+        "timestamp": datetime.datetime.utcnow().isoformat()
+    })
+
+
+# ──────────────────────────────────────────────────────────────────
+# NEW MODULE 3: AI Decision Engine — ranked actionable strategies
+# ──────────────────────────────────────────────────────────────────
+
+@app.route("/api/decision-engine/<name>", methods=["GET"])
+def decision_engine(name):
+    if name not in datasets:
+        return jsonify({"error": "Dataset not found"}), 404
+    df = datasets[name]
+    if name not in ml_cache:
+        ml_cache[name] = run_ml(df)
+    ml  = ml_cache[name]
+    w   = detect_weaknesses(df)
+
+    total_profit = float(df["Profit"].sum()) if "Profit" in df.columns else 0
+    total_sales  = float(df["Sales"].sum())  if "Sales"  in df.columns else 0
+    bp = ml.get("best_predicted_profit", 0)
+
+    decisions = []
+
+    # Strategy 1: Eliminate losses
+    loss_sum = abs(sum(w.get("loss_making_products", {}).values()))
+    if loss_sum > 0:
+        roi = round(loss_sum / max(abs(total_profit), 1) * 100, 1)
+        decisions.append({
+            "rank": 1, "priority": "HIGH",
+            "strategy": "Eliminate Loss-Making Sub-Categories",
+            "expected_roi": f"+{roi}% profit recovery",
+            "risk_level": "Low",
+            "time_to_impact": "60 days",
+            "revenue_impact": round(loss_sum, 2),
+            "growth_impact": round(roi, 1),
+            "confidence": 92,
+            "rationale": f"Removing {len(w.get('loss_making_products',{}))} loss-making lines recovers ${loss_sum:,.2f} in eroded profit."
+        })
+
+    # Strategy 2: Regional recovery
+    reg_gap = abs(sum(v for v in w.get("low_performing_regions", {}).values() if v < 0))
+    if reg_gap > 0:
+        decisions.append({
+            "rank": len(decisions)+1, "priority": "MEDIUM",
+            "strategy": "Regional Recovery Campaigns",
+            "expected_roi": "+15–25% regional revenue",
+            "risk_level": "Medium",
+            "time_to_impact": "90 days",
+            "revenue_impact": round(reg_gap * 0.2, 2),
+            "growth_impact": 18.5,
+            "confidence": 78,
+            "rationale": "Targeted local campaigns can recover 20% of regional profit gap with moderate investment."
+        })
+
+    # Strategy 3: ML-driven pricing
+    decisions.append({
+        "rank": len(decisions)+1, "priority": "HIGH",
+        "strategy": f"Deploy {ml.get('best_model','Random Forest')} for Dynamic Pricing",
+        "expected_roi": "+10–20% margin improvement",
+        "risk_level": "Low",
+        "time_to_impact": "30 days",
+        "revenue_impact": round(bp * 0.15, 2),
+        "growth_impact": 15.0,
+        "confidence": 88,
+        "rationale": "ML-guided pricing reduces over-discounting and improves average transaction margin."
+    })
+
+    # Strategy 4: Customer retention
+    decisions.append({
+        "rank": len(decisions)+1, "priority": "MEDIUM",
+        "strategy": "Launch RFM-Based Loyalty Program",
+        "expected_roi": "+25–95% LTV improvement",
+        "risk_level": "Low",
+        "time_to_impact": "45 days",
+        "revenue_impact": round(total_sales * 0.05, 2),
+        "growth_impact": 22.0,
+        "confidence": 85,
+        "rationale": "Retaining top 20% customers via RFM segmentation can yield 5x lower acquisition cost."
+    })
+
+    # Sort by confidence desc
+    decisions.sort(key=lambda x: -x["confidence"])
+    for i, d in enumerate(decisions, 1):
+        d["rank"] = i
+
+    return jsonify({
+        "decisions": decisions,
+        "top_strategy": decisions[0] if decisions else {},
+        "total_strategies": len(decisions),
+        "dataset": name
+    })
+
+
+# ──────────────────────────────────────────────────────────────────
+# NEW MODULE 4: Model Explainability (feature importance)
+# ──────────────────────────────────────────────────────────────────
+
+@app.route("/api/explain/<name>", methods=["GET"])
+def explain(name):
+    if name not in datasets:
+        return jsonify({"error": "Dataset not found"}), 404
+    df = datasets[name]
+    if not {"Sales", "Quantity", "Profit"}.issubset(df.columns):
+        return jsonify({"error": "Required columns missing"}), 400
+
+    features = df[["Sales", "Quantity"]].values
+    target   = df["Profit"].values
+    X_tr, X_te, y_tr, y_te = train_test_split(features, target, test_size=0.2, random_state=42)
+
+    rf = RandomForestRegressor(n_estimators=100, random_state=42)
+    rf.fit(X_tr, y_tr)
+    importances = rf.feature_importances_.tolist()
+
+    feature_names = ["Sales", "Quantity"]
+    explanation = [
+        {"feature": fn, "importance": round(imp, 4), "pct": round(imp * 100, 1)}
+        for fn, imp in zip(feature_names, importances)
+    ]
+    explanation.sort(key=lambda x: -x["importance"])
+
+    # SHAP-style direction via correlation
+    directions = {}
+    for fn in feature_names:
+        col_vals = df[fn].values
+        corr = float(np.corrcoef(col_vals, target)[0, 1])
+        directions[fn] = "positive" if corr > 0 else "negative"
+
+    # Permutation importance chart
+    fig, ax = plt.subplots(figsize=(6, 3))
+    colors = ["#6C63FF" if directions[e["feature"]] == "positive" else "#FF6584"
+              for e in explanation]
+    ax.barh([e["feature"] for e in explanation],
+            [e["importance"] for e in explanation], color=colors)
+    ax.set_title("Feature Importance (Random Forest)", fontsize=12, fontweight="bold", color="white")
+    ax.set_xlabel("Importance Score", color="white")
+    fig.patch.set_facecolor("#1a1a2e"); ax.set_facecolor("#16213e")
+    ax.tick_params(colors="white"); ax.spines[:].set_color("#333366")
+    chart = fig_to_b64(fig)
+
+    return jsonify({
+        "feature_importance": explanation,
+        "directions": directions,
+        "chart": chart,
+        "insight": (
+            f"'{explanation[0]['feature']}' is the strongest profit driver "
+            f"({explanation[0]['pct']}% importance) with a "
+            f"{directions[explanation[0]['feature']]} correlation to profit."
+        )
+    })
+
+
+# ──────────────────────────────────────────────────────────────────
+# NEW MODULE 5: Smart Data Processing — auto quality report
+# ──────────────────────────────────────────────────────────────────
+
+@app.route("/api/smart-process/<name>", methods=["GET"])
+def smart_process(name):
+    if name not in datasets:
+        return jsonify({"error": "Dataset not found"}), 404
+    df = datasets[name]
+
+    issues = []
+    suggestions = []
+
+    # Missing values check
+    missing = df.isnull().sum()
+    for col, cnt in missing[missing > 0].items():
+        pct = round(cnt / len(df) * 100, 1)
+        issues.append({"type": "missing_values", "column": col, "count": int(cnt), "pct": pct})
+
+    # Duplicate check
+    dup_count = int(df.duplicated().sum())
+    if dup_count:
+        issues.append({"type": "duplicates", "count": dup_count})
+
+    # Constant columns
+    for col in df.columns:
+        if df[col].nunique() == 1:
+            issues.append({"type": "constant_column", "column": col})
+
+    # Feature suggestions
+    if {"Sales", "Profit"}.issubset(df.columns):
+        suggestions.append({"feature": "profit_margin", "formula": "Profit / Sales", "reason": "Key efficiency KPI"})
+    if {"Order Date", "Ship Date"}.issubset(df.columns):
+        suggestions.append({"feature": "shipping_days", "formula": "Ship Date - Order Date", "reason": "Operational efficiency metric"})
+    if "Quantity" in df.columns and "Sales" in df.columns:
+        suggestions.append({"feature": "avg_order_value", "formula": "Sales / Quantity", "reason": "Unit economics metric"})
+
+    # Model selection advice
+    model_rec = "Random Forest" if len(df) > 1000 else "Decision Tree"
+    model_reason = ("Large dataset benefits from ensemble stability."
+                    if len(df) > 1000 else "Smaller dataset suits interpretable single-tree model.")
+
+    # Data quality score
+    quality_score = 100
+    quality_score -= len([i for i in issues if i["type"] == "missing_values"]) * 10
+    quality_score -= (5 if dup_count else 0)
+    quality_score = max(0, quality_score)
+
+    return jsonify({
+        "quality_score": quality_score,
+        "total_rows": len(df),
+        "total_columns": len(df.columns),
+        "issues": issues,
+        "feature_suggestions": suggestions,
+        "recommended_model": model_rec,
+        "model_reason": model_reason,
+        "status": "good" if quality_score >= 80 else "needs_attention"
+    })
+
+
+# ──────────────────────────────────────────────────────────────────
+# NEW MODULE 6: KPI Filters (Advanced Dashboard)
+# ──────────────────────────────────────────────────────────────────
+
+@app.route("/api/kpi-filters/<name>", methods=["GET"])
+def kpi_filters(name):
+    if name not in datasets:
+        return jsonify({"error": "Dataset not found"}), 404
+    df = datasets[name]
+
+    region   = request.args.get("region")
+    category = request.args.get("category")
+    segment  = request.args.get("segment")
+
+    filtered = df.copy()
+    if region   and "Region"   in df.columns: filtered = filtered[filtered["Region"]   == region]
+    if category and "Category" in df.columns: filtered = filtered[filtered["Category"] == category]
+    if segment  and "Segment"  in df.columns: filtered = filtered[filtered["Segment"]  == segment]
+
+    result = {
+        "filters_applied": {"region": region, "category": category, "segment": segment},
+        "rows_after_filter": len(filtered),
+        "total_sales":   round(float(filtered["Sales"].sum()),  2) if "Sales"  in filtered.columns else 0,
+        "total_profit":  round(float(filtered["Profit"].sum()), 2) if "Profit" in filtered.columns else 0,
+        "total_orders":  int(filtered["Order ID"].nunique())        if "Order ID" in filtered.columns else 0,
+        "avg_discount":  round(float(filtered["Discount"].mean()), 4) if "Discount" in filtered.columns else 0,
+        "profit_margin": 0,
+        "filter_options": {
+            "regions":    sorted(df["Region"].dropna().unique().tolist())   if "Region"   in df.columns else [],
+            "categories": sorted(df["Category"].dropna().unique().tolist()) if "Category" in df.columns else [],
+            "segments":   sorted(df["Segment"].dropna().unique().tolist())  if "Segment"  in df.columns else [],
+        }
+    }
+    if result["total_sales"] > 0:
+        result["profit_margin"] = round(result["total_profit"] / result["total_sales"] * 100, 2)
+
+    return jsonify(result)
+
+
+# ──────────────────────────────────────────────────────────────────
+# NEW MODULE 7: Report Metadata (for PDF export)
+# ──────────────────────────────────────────────────────────────────
+
+@app.route("/api/report-meta/<name>", methods=["GET"])
+def report_meta(name):
+    if name not in datasets:
+        return jsonify({"error": "Dataset not found"}), 404
+    df = datasets[name]
+    if name not in ml_cache:
+        ml_cache[name] = run_ml(df)
+    ml = ml_cache[name]
+    w  = detect_weaknesses(df)
+
+    total_profit = round(float(df["Profit"].sum()), 2) if "Profit" in df.columns else 0
+    total_sales  = round(float(df["Sales"].sum()),  2) if "Sales"  in df.columns else 0
+    margin = round(total_profit / total_sales * 100, 2) if total_sales else 0
+
+    return jsonify({
+        "report_title": f"AI Decision Intelligence Report — {name}",
+        "generated_at": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+        "dataset": name,
+        "summary": {
+            "total_sales": total_sales,
+            "total_profit": total_profit,
+            "profit_margin": margin,
+            "rows": len(df),
+            "best_model": ml.get("best_model", "N/A"),
+        },
+        "key_findings": _key_findings(df, ml, w),
+        "weaknesses_count": len(w.get("loss_making_products", {})) + len(w.get("low_performing_regions", {})),
+        "top_recommendation": "Deploy ML-driven pricing and eliminate loss-making sub-categories within 60 days.",
+        "projected_growth": "+10% profit with recommended strategy application"
+    })
+
+
+# ──────────────────────────────────────────────────────────────────
+# NEW MODULE 8: Live Refresh Status
+# ──────────────────────────────────────────────────────────────────
+
+@app.route("/api/refresh-status", methods=["GET"])
+def refresh_status():
+    return jsonify({
+        "status": "live",
+        "datasets_loaded": len(datasets),
+        "server_time": datetime.datetime.utcnow().isoformat(),
+        "uptime_ok": True
+    })
+
+
+# ──────────────────────────────────────────────────────────────────
+# NEW MODULE 9: User Auth (role simulation, no external DB needed)
+# ──────────────────────────────────────────────────────────────────
+
+_USERS = {
+    "admin":   {"password": hashlib.sha256(b"admin123").hexdigest(),   "role": "admin"},
+    "analyst": {"password": hashlib.sha256(b"analyst123").hexdigest(), "role": "analyst"},
+    "viewer":  {"password": hashlib.sha256(b"viewer123").hexdigest(),  "role": "viewer"},
+}
+
+@app.route("/api/auth/login", methods=["POST"])
+def auth_login():
+    body = request.get_json(silent=True) or {}
+    username = body.get("username", "").lower()
+    password = body.get("password", "")
+    user = _USERS.get(username)
+    if not user or user["password"] != hashlib.sha256(password.encode()).hexdigest():
+        return jsonify({"error": "Invalid credentials"}), 401
+    token = base64.b64encode(f"{username}:{user['role']}:{datetime.date.today()}".encode()).decode()
+    return jsonify({"token": token, "role": user["role"], "username": username})
+
+@app.route("/api/auth/roles", methods=["GET"])
+def auth_roles():
+    return jsonify({"roles": ["admin", "analyst", "viewer"],
+                    "permissions": {
+                        "admin":   ["upload", "delete", "analyze", "export", "manage_users"],
+                        "analyst": ["upload", "analyze", "export"],
+                        "viewer":  ["analyze"]
+                    }})
+
+
+# ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # 0.0.0.0 → accessible from any device on the same WiFi network
     app.run(debug=True, port=5000, host="0.0.0.0")
+
