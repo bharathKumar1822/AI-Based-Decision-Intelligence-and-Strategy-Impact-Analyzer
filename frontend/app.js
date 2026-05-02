@@ -85,20 +85,24 @@ function switchTab(tab) {
 
 function loadTab(tab) {
   // conclusion and compare work across all loaded datasets — no single activeDataset needed
-  const needsDataset = !["compare", "overview", "conclusion"].includes(tab);
+  const needsDataset = !["compare", "overview", "conclusion", "engine", "anomaly", "explainability", "dataquality"].includes(tab);
   if (needsDataset && !activeDataset) {
     showToast("Please load and select a dataset first.", "info");
     return;
   }
   switch (tab) {
-    case "overview":    loadOverview();    break;
-    case "eda":         loadEDA();         break;
-    case "weakness":    loadWeakness();    break;
-    case "predict":     loadPredict();     break;
-    case "strategy":    loadStrategy();    break;
-    case "recommend":   loadRecommend();   break;
-    case "compare":     loadCompare();     break;
-    case "conclusion":  /* manual button only */  break;
+    case "overview":        loadOverview();        break;
+    case "eda":             loadEDA();             break;
+    case "weakness":        loadWeakness();        break;
+    case "predict":         loadPredict();         break;
+    case "strategy":        loadStrategy();        break;
+    case "recommend":       loadRecommend();       break;
+    case "compare":         loadCompare();         break;
+    case "conclusion":      /* manual button only */ break;
+    case "engine":          loadEngine();          break;
+    case "anomaly":         loadAnomaly();         break;
+    case "explainability":  loadExplainability();  break;
+    case "dataquality":     loadDataQuality();     break;
   }
 }
 
@@ -256,6 +260,8 @@ async function loadOverview() {
       <div class="kpi-card"><div class="kpi-inner"><span class="kpi-label">Total Orders</span><span class="kpi-value">—</span></div></div>
       <div class="kpi-card"><div class="kpi-inner"><span class="kpi-label">Customers</span><span class="kpi-value">—</span></div></div>`;
     if (infoBox) infoBox.innerHTML = "";
+    const filterBar = document.getElementById("kpi-filter-bar");
+    if (filterBar) filterBar.style.display = "none";
     return;
   }
   try {
@@ -265,6 +271,8 @@ async function loadOverview() {
                    + kpiCard("📦", "Total Orders",  fmtN(data.total_orders), "#43CBFF")
                    + kpiCard("👥", "Customers",     fmtN(data.total_customers), "#F7971E");
     if (infoBox && data.dataset_info) renderDatasetInfo(infoBox, data.dataset_info);
+    // Load KPI filters inline — no function override needed
+    loadKpiFilters();
   } catch(e) {
     showToast("❌ Overview error: " + e.message, "error");
   }
@@ -846,22 +854,6 @@ async function loadConclusion() {
   }
 })();
 
-// Wire up conclusion tab load on switch
-const _origSwitchTab = switchTab;
-
-// ── Extend loadTab for new modules ─────────────────────────
-const _origLoadTab = loadTab;
-function loadTab(tab) {
-  switch(tab) {
-    case "engine":        loadEngine();        break;
-    case "anomaly":       loadAnomaly();       break;
-    case "explainability":loadExplainability();break;
-    case "dataquality":   loadDataQuality();   break;
-    default: _origLoadTab(tab);
-  }
-}
-
-// ── DECISION ENGINE ─────────────────────────────────────────
 async function loadEngine() {
   const c = document.getElementById("engine-content");
   if (!activeDataset) { c.innerHTML = emptyState("🧠","No dataset selected","Load and select a dataset first."); return; }
@@ -1234,10 +1226,3 @@ async function checkLiveStatus() {
 }
 checkLiveStatus();
 setInterval(checkLiveStatus, 30000);
-
-// ── PATCH loadOverview to include KPI filters ───────────────
-const _origLoadOverview = loadOverview;
-async function loadOverview() {
-  await _origLoadOverview();
-  if (activeDataset) loadKpiFilters();
-}
