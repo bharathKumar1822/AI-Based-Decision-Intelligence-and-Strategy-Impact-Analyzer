@@ -355,8 +355,9 @@ def load_defaults():
     """Load the two built-in Superstore CSV files."""
     base = ROOT_DIR / "data"   # works for both normal run and .exe
     files = {
-        "Dataset A": "superstore_dataset1.csv",
-        "Dataset B": "superstore_dataset2.csv",
+        "Dataset A":        "superstore_dataset1.csv",
+        "Dataset B":        "superstore_dataset2.csv",
+        "Global Dataset 6": "global dataset 6.csv",
     }
     loaded = []
     for name, fname in files.items():
