@@ -112,16 +112,29 @@ async function refreshDatasetList() {
   const data = await apiFetch("/datasets");
   const names = data.datasets;
 
-  // ── Rebuild dropdown ──────────────────────────
-  datasetSelect.innerHTML = `<option value="">— select dataset —</option>`;
-  names.forEach(n => {
-    const opt = document.createElement("option");
-    opt.value = n; opt.textContent = n;
-    if (n === activeDataset) opt.selected = true;
-    datasetSelect.appendChild(opt);
-  });
+  if (!names.length) {
+    // No datasets — keep disabled with placeholder
+    datasetSelect.innerHTML = `<option value="">\u2014 load datasets first \u2014</option>`;
+    datasetSelect.disabled       = true;
+    datasetSelect.style.opacity  = "0.5";
+    datasetSelect.style.cursor   = "not-allowed";
+    datasetSelect.title          = "Click 'Load Default Datasets' first";
+  } else {
+    // Datasets available — enable and populate
+    datasetSelect.innerHTML = `<option value="">\u2014 select a dataset \u2014</option>`;
+    names.forEach(n => {
+      const opt = document.createElement("option");
+      opt.value = n; opt.textContent = n;
+      if (n === activeDataset) opt.selected = true;
+      datasetSelect.appendChild(opt);
+    });
+    datasetSelect.disabled       = false;
+    datasetSelect.style.opacity  = "1";
+    datasetSelect.style.cursor   = "pointer";
+    datasetSelect.title          = "Select active dataset";
+  }
 
-  // ── Render chips bar ──────────────────────────
+  // Render chips bar
   renderDatasetChips(names);
 
   return names;
@@ -161,14 +174,13 @@ function renderDatasetChips(names) {
       const name = el.dataset.name;
       try {
         await apiFetch(`/remove/${encodeURIComponent(name)}`, { method: "DELETE" });
-        if (activeDataset === name) activeDataset = "";
-        const updated = await refreshDatasetList();
-        if (!activeDataset && updated.length) {
-          activeDataset = updated[0];
-          datasetSelect.value = activeDataset;
+        if (activeDataset === name) {
+          activeDataset = "";
+          datasetSelect.value = "";
         }
+        await refreshDatasetList();
+        // Do NOT auto-select after removal — user must pick
         showToast(`🗑️ Removed: ${name}`, "info");
-        loadTab(activeTab);
       } catch(e) {
         showToast("❌ " + e.message, "error");
       }
@@ -177,7 +189,7 @@ function renderDatasetChips(names) {
 }
 
 datasetSelect.addEventListener("change", () => {
-  activeDataset = datasetSelect.value;
+  activeDataset = datasetSelect.value || null;
   if (activeDataset) {
     loadTab(activeTab);
   }
