@@ -108,35 +108,39 @@ function loadTab(tab) {
 
 // ── Dataset Management ─────────────────────────────────────
 
-async function refreshDatasetList() {
-  const data = await apiFetch("/datasets");
+// ── Dropdown lock/unlock helpers ──────────────────────────
+function lockDropdown() {
+  datasetSelect.innerHTML = `<option value="">— load datasets first —</option>`;
+  datasetSelect.disabled      = true;
+  datasetSelect.style.opacity = "0.5";
+  datasetSelect.style.cursor  = "not-allowed";
+  datasetSelect.title         = "Click 'Load Default Datasets' first";
+}
+
+function unlockDropdown(names) {
+  datasetSelect.innerHTML = `<option value="">— select a dataset —</option>`;
+  names.forEach(n => {
+    const opt = document.createElement("option");
+    opt.value = n; opt.textContent = n;
+    datasetSelect.appendChild(opt);
+  });
+  datasetSelect.disabled      = false;
+  datasetSelect.style.opacity = "1";
+  datasetSelect.style.cursor  = "pointer";
+  datasetSelect.title         = "Select active dataset";
+}
+
+async function refreshDatasetList(enableDropdown = false) {
+  const data  = await apiFetch("/datasets");
   const names = data.datasets;
 
-  if (!names.length) {
-    // No datasets — keep disabled with placeholder
-    datasetSelect.innerHTML = `<option value="">\u2014 load datasets first \u2014</option>`;
-    datasetSelect.disabled       = true;
-    datasetSelect.style.opacity  = "0.5";
-    datasetSelect.style.cursor   = "not-allowed";
-    datasetSelect.title          = "Click 'Load Default Datasets' first";
-  } else {
-    // Datasets available — enable and populate
-    datasetSelect.innerHTML = `<option value="">\u2014 select a dataset \u2014</option>`;
-    names.forEach(n => {
-      const opt = document.createElement("option");
-      opt.value = n; opt.textContent = n;
-      if (n === activeDataset) opt.selected = true;
-      datasetSelect.appendChild(opt);
-    });
-    datasetSelect.disabled       = false;
-    datasetSelect.style.opacity  = "1";
-    datasetSelect.style.cursor   = "pointer";
-    datasetSelect.title          = "Select active dataset";
+  if (enableDropdown && names.length) {
+    unlockDropdown(names);
   }
+  // Never auto-enable the dropdown on a plain refresh — keep it locked
+  // until the user explicitly clicks Load Default Datasets.
 
-  // Render chips bar
   renderDatasetChips(names);
-
   return names;
 }
 
@@ -198,18 +202,23 @@ datasetSelect.addEventListener("change", () => {
 loadDefaultsBtn.addEventListener("click", async () => {
   showLoading("Loading default datasets…");
   try {
-    const res = await apiFetch("/load-defaults", { method: "POST" });
-    await refreshDatasetList();
-    // Do NOT auto-select — let the user pick from the dropdown
-    activeDataset = null;
-    datasetSelect.value = "";
+    const res         = await apiFetch("/load-defaults", { method: "POST" });
     const loadedNames = res.loaded || [];
     const errNames    = res.errors || [];
+
     if (loadedNames.length) {
-      showToast(`✅ Loaded: ${loadedNames.join(", ")} — select a dataset from the dropdown`, "success");
+      // Explicitly unlock the dropdown with the newly loaded datasets
+      unlockDropdown(loadedNames);
+      activeDataset = null;
+      datasetSelect.value = "";
+      // Also sync the chips bar
+      renderDatasetChips(loadedNames);
+      showToast(`✅ Loaded: ${loadedNames.join(", ")} — now select a dataset`, "success");
+    } else {
+      showToast("⚠️ No datasets were loaded", "error");
     }
     if (errNames.length) {
-      showToast(`⚠️ Some datasets failed: ${errNames.join(" | ")}`, "error");
+      showToast(`⚠️ Errors: ${errNames.join(" | ")}`, "error");
     }
   } catch(e) {
     showToast("❌ " + e.message, "error");
@@ -853,12 +862,12 @@ async function loadConclusion() {
 // ── Bootstrap ──────────────────────────────────────────────
 
 (async function init() {
+  // ALWAYS start locked — user must click "Load Default Datasets"
+  lockDropdown();
   try {
-    await refreshDatasetList();
-    // Do NOT auto-select or auto-load — user must click "Load Default Datasets"
-    // and then choose a dataset from the dropdown.
+    await apiFetch("/datasets"); // just a liveness check, no dropdown interaction
   } catch(e) {
-    showToast("⚠️ Backend not reachable. Click 'Load Default Datasets'.", "error");
+    showToast("⚠️ Backend not reachable. Start the server and refresh.", "error");
   }
 })();
 
