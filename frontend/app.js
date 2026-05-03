@@ -1166,54 +1166,8 @@ if (chatVoice && (window.SpeechRecognition || window.webkitSpeechRecognition)) {
   chatVoice.style.cursor = "not-allowed";
 }
 
-// ── AUTH MODAL ──────────────────────────────────────────────
-let currentRole = null;
-const authModal  = document.getElementById("auth-modal");
-const authOpen   = document.getElementById("btn-auth-open");
-const authClose  = document.getElementById("auth-modal-close");
-const authLogin  = document.getElementById("btn-auth-login");
-const authLogout = document.getElementById("btn-auth-logout");
-const authError  = document.getElementById("auth-error");
 
-authOpen.addEventListener("click",  () => authModal.classList.remove("hidden"));
-authClose.addEventListener("click", () => authModal.classList.add("hidden"));
-authModal.addEventListener("click", e => { if (e.target === authModal) authModal.classList.add("hidden"); });
 
-authLogin.addEventListener("click", async () => {
-  const username = document.getElementById("auth-username").value.trim();
-  const password = document.getElementById("auth-password").value;
-  authError.style.display = "none";
-  try {
-    const data = await apiFetch("/auth/login", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ username, password })
-    });
-    currentRole = data.role;
-    document.getElementById("auth-role-badge").textContent = `${data.username} — ${data.role.toUpperCase()}`;
-    document.getElementById("auth-role-display").style.display = "block";
-    document.getElementById("auth-user-display").textContent = `👤 ${data.username} (${data.role})`;
-    document.getElementById("auth-user-display").style.display = "block";
-    authOpen.textContent = `👤 ${data.username}`;
-    document.querySelector(".modal-body").style.display = "none";
-    showToast(`✅ Welcome ${data.username}! Role: ${data.role}`,"success");
-  } catch(e) {
-    authError.textContent = "❌ " + e.message;
-    authError.style.display = "block";
-  }
-});
-
-authLogout.addEventListener("click", () => {
-  currentRole = null;
-  document.getElementById("auth-role-display").style.display = "none";
-  document.getElementById("auth-user-display").style.display = "none";
-  document.querySelector(".modal-body").style.display = "block";
-  authOpen.textContent = "🔐 Login";
-  authModal.classList.add("hidden");
-  document.getElementById("auth-username").value = "";
-  document.getElementById("auth-password").value = "";
-  showToast("Logged out","info");
-});
 
 // ── EXPORT REPORT (PDF via print) ──────────────────────────
 const exportBtn = document.getElementById("btn-export-report");

@@ -56,7 +56,6 @@
 
     <div class="sidebar-footer">
       <div class="version-badge">v4.0 — Enterprise Edition</div>
-      <div id="auth-user-display" style="font-size:0.72rem;color:var(--accent2);text-align:center;margin-top:6px;display:none"></div>
     </div>
   </aside>
 
@@ -77,7 +76,6 @@
         <select id="dataset-select" class="select-box" title="Select active dataset">
           <option value="">— select dataset —</option>
         </select>
-        <button class="btn btn-secondary btn-sm" id="btn-auth-open">🔐 Login</button>
         <div id="live-indicator" class="live-dot" title="Backend live"></div>
       </div>
     </header>
@@ -256,28 +254,6 @@
     </div>
   </div>
 
-  <!-- ── AUTH MODAL ── -->
-  <div class="modal-overlay hidden" id="auth-modal">
-    <div class="modal-box">
-      <div class="modal-header">
-        <span>🔐 Sign In</span>
-        <button class="modal-close" id="auth-modal-close">✕</button>
-      </div>
-      <div class="modal-body">
-        <p style="color:var(--text-secondary);font-size:0.82rem;margin-bottom:16px">
-          Demo credentials: <code>admin/admin123</code> · <code>analyst/analyst123</code> · <code>viewer/viewer123</code>
-        </p>
-        <input type="text"     id="auth-username" class="auth-input" placeholder="Username" autocomplete="off" />
-        <input type="password" id="auth-password" class="auth-input" placeholder="Password" />
-        <button class="btn btn-primary" style="width:100%;margin-top:8px" id="btn-auth-login">Login</button>
-        <div id="auth-error" style="color:var(--danger);font-size:0.82rem;margin-top:8px;display:none"></div>
-      </div>
-      <div id="auth-role-display" style="display:none;padding:12px 20px;border-top:1px solid var(--border)">
-        <span id="auth-role-badge" class="role-badge"></span>
-        <button class="btn btn-secondary btn-sm" id="btn-auth-logout" style="margin-left:8px">Logout</button>
-      </div>
-    </div>
-  </div>
 
   <script src="app.js"></script>
 </body>

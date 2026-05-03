@@ -9,7 +9,6 @@ import sys
 import io
 import re
 import base64
-import hashlib
 import hmac
 import traceback
 import datetime
@@ -1737,35 +1736,8 @@ def refresh_status():
     })
 
 
-# ──────────────────────────────────────────────────────────────────
-# NEW MODULE 9: User Auth (role simulation, no external DB needed)
-# ──────────────────────────────────────────────────────────────────
 
-_USERS = {
-    "admin":   {"password": hashlib.sha256(b"admin123").hexdigest(),   "role": "admin"},
-    "analyst": {"password": hashlib.sha256(b"analyst123").hexdigest(), "role": "analyst"},
-    "viewer":  {"password": hashlib.sha256(b"viewer123").hexdigest(),  "role": "viewer"},
-}
 
-@app.route("/api/auth/login", methods=["POST"])
-def auth_login():
-    body = request.get_json(silent=True) or {}
-    username = body.get("username", "").lower()
-    password = body.get("password", "")
-    user = _USERS.get(username)
-    if not user or user["password"] != hashlib.sha256(password.encode()).hexdigest():
-        return jsonify({"error": "Invalid credentials"}), 401
-    token = base64.b64encode(f"{username}:{user['role']}:{datetime.date.today()}".encode()).decode()
-    return jsonify({"token": token, "role": user["role"], "username": username})
-
-@app.route("/api/auth/roles", methods=["GET"])
-def auth_roles():
-    return jsonify({"roles": ["admin", "analyst", "viewer"],
-                    "permissions": {
-                        "admin":   ["upload", "delete", "analyze", "export", "manage_users"],
-                        "analyst": ["upload", "analyze", "export"],
-                        "viewer":  ["analyze"]
-                    }})
 
 
 # ──────────────────────────────────────────────────────────────────
