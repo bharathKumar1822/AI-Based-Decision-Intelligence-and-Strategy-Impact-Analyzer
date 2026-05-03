@@ -45,9 +45,7 @@
       <a href="#" class="nav-item" data-tab="recommend" id="nav-recommend">
         <span class="nav-icon">💡</span><span>Recommendations</span>
       </a>
-      <a href="#" class="nav-item" data-tab="dataquality" id="nav-dataquality">
-        <span class="nav-icon">🧹</span><span>Data Quality</span>
-      </a>
+
       <a href="#" class="nav-item" data-tab="compare" id="nav-compare">
         <span class="nav-icon">⚖️</span><span>Company Comparison</span>
       </a>
@@ -57,7 +55,7 @@
     </nav>
 
     <div class="sidebar-footer">
-      <div class="version-badge">v3.0 — Enterprise Edition</div>
+      <div class="version-badge">v4.0 — Enterprise Edition</div>
       <div id="auth-user-display" style="font-size:0.72rem;color:var(--accent2);text-align:center;margin-top:6px;display:none"></div>
     </div>
   </aside>
@@ -161,7 +159,7 @@
       <section class="tab-section" id="tab-explainability">
         <div class="section-header">
           <h2>🔬 Model Explainability</h2>
-          <p class="section-sub">Feature importance & SHAP-style profit driver analysis</p>
+          <p class="section-sub">Feature importance · SHAP-style profit driver analysis · Plain-English AI explanations</p>
         </div>
         <div id="explainability-content"></div>
       </section>
@@ -179,7 +177,7 @@
       <section class="tab-section" id="tab-anomaly">
         <div class="section-header">
           <h2>🚨 Risk & Anomaly Detection</h2>
-          <p class="section-sub">Outliers, sudden drops & real-time alert system</p>
+          <p class="section-sub">Outliers · Root-cause analysis for profit drops · Risk impact · Discount risk</p>
         </div>
         <div id="anomaly-content"></div>
       </section>
@@ -193,14 +191,7 @@
         <div id="recommend-content"></div>
       </section>
 
-      <!-- ── DATA QUALITY TAB ── -->
-      <section class="tab-section" id="tab-dataquality">
-        <div class="section-header">
-          <h2>🧹 Smart Data Processing</h2>
-          <p class="section-sub">Auto-cleaning insights, quality score & feature engineering suggestions</p>
-        </div>
-        <div id="dataquality-content"></div>
-      </section>
+
 
       <!-- ── COMPARE TAB ── -->
       <section class="tab-section" id="tab-compare">
@@ -255,10 +246,11 @@
         <button class="chat-close" id="chat-close">✕</button>
       </div>
       <div class="chat-messages" id="chat-messages">
-        <div class="chat-msg bot">👋 Hi! Ask me anything about your data.<br><em style="font-size:0.78rem;opacity:0.7">e.g. "Why did profit drop?" or "Best strategy?"</em></div>
+        <div class="chat-msg bot">👋 Hi! Ask me anything about your data — via text or 🎤 voice.<br><em style="font-size:0.78rem;opacity:0.7">e.g. "Why did profit drop?" or "Best strategy?"</em></div>
       </div>
       <div class="chat-input-row">
-        <input type="text" id="chat-input" class="chat-input" placeholder="Ask a question…" />
+        <input type="text" id="chat-input" class="chat-input" placeholder="Ask a question or tap 🎤…" />
+        <button class="btn btn-secondary btn-sm" id="chat-voice" title="Speak your question">🎤</button>
         <button class="btn btn-primary btn-sm" id="chat-send">➤</button>
       </div>
     </div>

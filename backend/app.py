@@ -1098,7 +1098,7 @@ def static_files(filename):
 
 
 # ──────────────────────────────────────────────────────────────────
-# NEW MODULE 1: Risk & Anomaly Detection
+# MODULE 1: Risk & Anomaly Detection (Enhanced with root-cause analysis)
 # ──────────────────────────────────────────────────────────────────
 
 @app.route("/api/anomaly/<name>", methods=["GET"])
@@ -1109,50 +1109,166 @@ def anomaly(name):
     anomalies = []
     alerts = []
 
-    # Z-score anomaly detection on numeric columns
+    # Z-score anomaly detection with per-column risk explanations
+    col_why = {
+        "Sales":    "Extreme sales values suggest mega-order anomalies or data-entry errors that distort revenue forecasts.",
+        "Profit":   "Outlier profits (very negative or very high) indicate transactions priced far outside normal range — returns, bulk deals, or clearance sales.",
+        "Quantity": "Unusually large quantities point to wholesale/bulk orders that skew demand forecasts and inflate inventory assumptions.",
+        "Discount": "Discounts beyond 3\u03c3 mean some orders received near-total price waivers, directly destroying margin integrity.",
+    }
     num_cols = [c for c in ["Sales", "Profit", "Quantity", "Discount"] if c in df.columns]
     for col in num_cols:
         z = np.abs(sp_stats.zscore(df[col].dropna()))
         outlier_count = int((z > 3).sum())
         if outlier_count > 0:
-            worst_val = float(df[col][z > 3].abs().max())
+            worst_val  = float(df[col][z > 3].abs().max())
+            col_mean   = round(float(df[col].mean()), 2)
+            col_std    = round(float(df[col].std()),  2)
+            impact_txt = (
+                f"These {outlier_count} outlier(s) in '{col}' pull the column mean away from true business average "
+                f"(mean: {col_mean}, \u03c3: {col_std}). ML models trained on this data will overfit to extremes, "
+                "producing unreliable forecasts. KPI dashboards will also show inflated or deflated averages."
+            )
             anomalies.append({
-                "column": col,
-                "outlier_count": outlier_count,
-                "max_deviation": round(worst_val, 2),
-                "severity": "critical" if outlier_count > 10 else "warning",
-                "description": f"{outlier_count} outlier(s) in {col} deviate >3σ from mean."
+                "column":              col,
+                "outlier_count":       outlier_count,
+                "max_deviation":       round(worst_val, 2),
+                "col_mean":            col_mean,
+                "col_std":             col_std,
+                "severity":            "critical" if outlier_count > 10 else "warning",
+                "description":         f"{outlier_count} outlier(s) in {col} deviate >3\u03c3 from mean.",
+                "why_risky":           col_why.get(col, "Extreme values distort model training and KPI averages."),
+                "impact":              impact_txt,
+                "recommended_action":  (
+                    f"Cap or winsorize {col} values beyond \u00b13\u03c3 before model training. "
+                    "Investigate the top 5 outlier transactions to determine if they are data errors or legitimate edge cases."
+                ),
             })
 
-    # Sudden profit drop detection (monthly)
+    # Sudden profit drop detection with detailed root-cause attribution
     drops = []
     if {"Order Date", "Profit"}.issubset(df.columns):
         df2 = df.dropna(subset=["Order Date"]).copy()
         df2["Month"] = df2["Order Date"].dt.to_period("M")
-        monthly = df2.groupby("Month")["Profit"].sum().sort_index()
+        monthly          = df2.groupby("Month")["Profit"].sum().sort_index()
+        monthly_sales    = df2.groupby("Month")["Sales"].sum()    if "Sales"    in df2.columns else None
+        monthly_discount = df2.groupby("Month")["Discount"].mean() if "Discount" in df2.columns else None
+
         for i in range(1, len(monthly)):
             prev, curr = monthly.iloc[i-1], monthly.iloc[i]
             if prev > 0 and (curr - prev) / abs(prev) < -0.25:
-                drops.append({
-                    "period": str(monthly.index[i]),
-                    "drop_pct": round((curr - prev) / abs(prev) * 100, 1),
-                    "from_val": round(float(prev), 2),
-                    "to_val": round(float(curr), 2)
-                })
-                alerts.append(f"⚠️ Profit dropped {abs(round((curr-prev)/abs(prev)*100,1))}% in {monthly.index[i]}")
+                drop_pct    = round((curr - prev) / abs(prev) * 100, 1)
+                period      = str(monthly.index[i])
+                prev_period = str(monthly.index[i-1])
 
-    # High-discount risk
+                causes = []
+                if monthly_discount is not None:
+                    pd_ = float(monthly_discount.get(monthly.index[i-1], 0))
+                    cd_ = float(monthly_discount.get(monthly.index[i], 0))
+                    if cd_ - pd_ > 0.05:
+                        causes.append(
+                            f"Average discount jumped from {pd_*100:.1f}% to {cd_*100:.1f}% in {period}. "
+                            "A 5%+ discount spike directly compresses profit margins by 15\u201330%."
+                        )
+                if monthly_sales is not None:
+                    ps = float(monthly_sales.get(monthly.index[i-1], 0))
+                    cs = float(monthly_sales.get(monthly.index[i], 0))
+                    if cs < ps * 0.85:
+                        causes.append(
+                            f"Total sales fell from ${ps:,.0f} to ${cs:,.0f} "
+                            f"({round((cs-ps)/abs(ps)*100,1)}%), indicating reduced demand, "
+                            "lost key accounts, or seasonal slowdown. Lower revenue with fixed overheads "
+                            "produces a disproportionately large profit decline."
+                        )
+                if not causes:
+                    causes.append(
+                        "Profit dropped without a proportional sales decline. Most likely causes: "
+                        "(1) category mix shifted toward low-margin products, "
+                        "(2) operational costs increased (logistics, returns, storage), or "
+                        "(3) a large loss-making order was fulfilled in this period."
+                    )
+
+                loss_amt       = round(float(prev - curr), 2)
+                annual_impact  = round(loss_amt * 12, 2)
+                impact_txt     = (
+                    f"This drop erased ${loss_amt:,.2f} in a single month. "
+                    f"Annualized, a sustained drop of this size equals -${annual_impact:,.2f}/year. "
+                    "Compounding drops compress operating cash flow and can signal structural margin deterioration."
+                )
+                drops.append({
+                    "period":          period,
+                    "prev_period":     prev_period,
+                    "drop_pct":        drop_pct,
+                    "from_val":        round(float(prev), 2),
+                    "to_val":          round(float(curr), 2),
+                    "loss_amount":     loss_amt,
+                    "root_causes":     causes,
+                    "impact":          impact_txt,
+                    "why_it_happened": (
+                        f"Profit dropped {abs(drop_pct)}% from {prev_period} to {period}. " + " ".join(causes)
+                    ),
+                    "what_to_do": (
+                        "1. Audit all orders in this period for discount-rate spikes. "
+                        "2. Compare product category mix vs. prior month. "
+                        "3. Identify large-volume, low-margin orders that skewed totals. "
+                        "4. Set an automated profit-floor alert for future months."
+                    ),
+                })
+                alerts.append(
+                    f"\u26a0\ufe0f Profit dropped {abs(drop_pct)}% in {period} "
+                    f"(${round(float(prev),0):,.0f} \u2192 ${round(float(curr),0):,.0f})"
+                )
+
+    # High-discount risk with detailed impact
+    high_disc_info = None
     if "Discount" in df.columns:
         high_disc = df[df["Discount"] > 0.4]
         if len(high_disc) > 0:
-            alerts.append(f"🔴 {len(high_disc)} orders have discounts >40% — high margin erosion risk")
+            hd_profit = round(float(high_disc["Profit"].sum()), 2) if "Profit" in high_disc.columns else 0
+            hd_sales  = round(float(high_disc["Sales"].sum()),  2) if "Sales"  in high_disc.columns else 0
+            alerts.append(
+                f"\U0001f534 {len(high_disc)} orders have discounts >40% \u2014 high margin erosion risk "
+                f"(combined profit: ${hd_profit:,.2f} on ${hd_sales:,.2f} sales)"
+            )
+            high_disc_info = {
+                "order_count":         len(high_disc),
+                "combined_profit":     hd_profit,
+                "combined_sales":      hd_sales,
+                "why_risky":           (
+                    "Discounts above 40% push per-order profit near or below break-even. "
+                    f"The {len(high_disc)} affected orders generate only ${hd_profit:,.2f} profit "
+                    f"on ${hd_sales:,.2f} sales \u2014 a severely compressed margin."
+                ),
+                "impact_if_unchecked": (
+                    "Sustained over-discounting anchors customer price expectations permanently below "
+                    "profitable levels, increases revenue volatility, and erodes brand pricing power long-term."
+                ),
+                "recommended_action":  (
+                    "Cap automatic discounts at 25\u201330% without manager approval. "
+                    "Flag orders with >35% discount for profitability review. "
+                    "Use ML-based dynamic pricing to enforce minimum profitable price floors by SKU."
+                ),
+            }
+
+    risk_score = min(100, len(anomalies) * 15 + len(drops) * 20 + (10 if high_disc_info else 0))
+    risk_level = "Critical" if risk_score >= 70 else "Elevated" if risk_score >= 40 else "Low"
+    risk_explanation = (
+        f"Risk score {risk_score}/100 ({risk_level}) = "
+        f"{len(anomalies)} outlier type(s) (+{len(anomalies)*15} pts) + "
+        f"{len(drops)} profit drop(s) (+{len(drops)*20} pts) + "
+        f"{'discount risk (+10 pts)' if high_disc_info else 'no discount risk (+0 pts)'}. "
+        "Score \u226570 requires immediate action; 40\u201369 warrants close monitoring; <40 is stable."
+    )
 
     return jsonify({
-        "anomalies": anomalies,
-        "sudden_drops": drops,
-        "alerts": alerts,
-        "total_anomalies": len(anomalies),
-        "risk_score": min(100, len(anomalies) * 15 + len(drops) * 20)
+        "anomalies":        anomalies,
+        "sudden_drops":     drops,
+        "alerts":           alerts,
+        "high_discount":    high_disc_info,
+        "total_anomalies":  len(anomalies),
+        "risk_score":       risk_score,
+        "risk_level":       risk_level,
+        "risk_explanation": risk_explanation,
     })
 
 
@@ -1335,7 +1451,7 @@ def decision_engine(name):
 
 
 # ──────────────────────────────────────────────────────────────────
-# NEW MODULE 4: Model Explainability (feature importance)
+# MODULE 4: Model Explainability (Enhanced — user-friendly insights)
 # ──────────────────────────────────────────────────────────────────
 
 @app.route("/api/explain/<name>", methods=["GET"])
@@ -1346,8 +1462,8 @@ def explain(name):
     if not {"Sales", "Quantity", "Profit"}.issubset(df.columns):
         return jsonify({"error": "Required columns missing"}), 400
 
-    features = df[["Sales", "Quantity"]].values
-    target   = df["Profit"].values
+    features      = df[["Sales", "Quantity"]].values
+    target        = df["Profit"].values
     X_tr, X_te, y_tr, y_te = train_test_split(features, target, test_size=0.2, random_state=42)
 
     rf = RandomForestRegressor(n_estimators=100, random_state=42)
@@ -1361,14 +1477,68 @@ def explain(name):
     ]
     explanation.sort(key=lambda x: -x["importance"])
 
-    # SHAP-style direction via correlation
-    directions = {}
+    # SHAP-style direction + correlation strength via Pearson
+    directions   = {}
+    correlations = {}
     for fn in feature_names:
         col_vals = df[fn].values
         corr = float(np.corrcoef(col_vals, target)[0, 1])
-        directions[fn] = "positive" if corr > 0 else "negative"
+        directions[fn]   = "positive" if corr > 0 else "negative"
+        correlations[fn] = round(corr, 4)
 
-    # Permutation importance chart
+    # Per-feature plain-English explanations
+    feature_plain_english = {
+        "Sales": (
+            "Sales (Revenue) is the total monetary value of each transaction. "
+            "A higher sales value generally signals a larger order, which gives the business more gross margin to work with — "
+            "even after subtracting costs. When Sales is the top profit driver, it means your business profit is "
+            "most sensitive to order value. Growing average order size (through upselling, bundles, or premium tiers) "
+            "will have the biggest direct impact on profit."
+        ),
+        "Quantity": (
+            "Quantity is the number of units sold per order. While higher quantities generate more revenue, "
+            "they also often come with bulk discounts that compress per-unit margin. "
+            "When Quantity strongly influences profit, it suggests the business should carefully evaluate "
+            "its volume-discount policy — ensuring that large-quantity orders remain genuinely profitable "
+            "rather than just high-revenue."
+        ),
+    }
+
+    # Per-feature impact on profit increases/decreases
+    feature_risk_impact = {
+        "Sales": {
+            "positive": "When sales revenue increases, profit typically rises proportionally. However, if sales growth comes from deep discounts, margin may not improve.",
+            "negative": "A negative correlation between Sales and Profit is a red flag — it means higher-revenue orders are somehow less profitable, often due to excessive discounting on large orders.",
+        },
+        "Quantity": {
+            "positive": "More units sold = more profit in your dataset. This suggests bulk orders are profitable and volume growth is a viable strategy.",
+            "negative": "Higher quantity correlates with lower profit — strong signal that bulk discounts or fulfillment costs are eating into margins on large orders.",
+        },
+    }
+
+    enriched_explanation = []
+    for e in explanation:
+        fn  = e["feature"]
+        dir_ = directions[fn]
+        enriched_explanation.append({
+            **e,
+            "direction":        dir_,
+            "correlation":      correlations[fn],
+            "plain_english":    feature_plain_english.get(fn, "This feature influences profit predictions."),
+            "impact_narrative": feature_risk_impact.get(fn, {}).get(dir_, ""),
+            "when_profit_rises":  (
+                f"When {fn} increases, profit tends to {'increase' if dir_ == 'positive' else 'decrease'} "
+                f"(correlation: {correlations[fn]:+.4f}). "
+                + ("This is the expected healthy pattern." if dir_ == "positive" else
+                   "This is a warning sign — investigate if cost structures or discounting are causing inverse performance.")
+            ),
+            "what_to_watch": (
+                f"Monitor {fn} monthly. A sudden drop in {fn} with no corresponding cost reduction "
+                "will directly compress profits. Set threshold alerts for significant deviations."
+            ),
+        })
+
+    # Feature importance chart
     fig, ax = plt.subplots(figsize=(6, 3))
     colors = ["#6C63FF" if directions[e["feature"]] == "positive" else "#FF6584"
               for e in explanation]
@@ -1380,15 +1550,41 @@ def explain(name):
     ax.tick_params(colors="white"); ax.spines[:].set_color("#333366")
     chart = fig_to_b64(fig)
 
+    top_f   = enriched_explanation[0]
+    bot_f   = enriched_explanation[-1] if len(enriched_explanation) > 1 else None
+
+    model_behaviour = (
+        f"The Random Forest model assigns {top_f['pct']}% of its decision-making weight to '{top_f['feature']}', "
+        f"meaning this single variable is responsible for {top_f['pct']}% of what the model uses to predict profit. "
+        + (f"'{bot_f['feature']}' accounts for the remaining {bot_f['pct']}%. " if bot_f else "")
+        + "This distribution tells you exactly where to focus data quality efforts and business strategy: "
+        f"improving the reliability and magnitude of '{top_f['feature']}' will have the greatest impact on forecast accuracy."
+    )
+
+    how_to_use = [
+        f"Focus sales strategy on growing '{top_f['feature']}' — it's your single biggest profit lever ({top_f['pct']}% model weight).",
+        "Review your bulk-discount policy if Quantity has a negative profit correlation.",
+        "Use these feature weights to prioritize which KPIs to include in executive dashboards.",
+        "Any new pricing or promotional strategy should be evaluated first through its impact on these two drivers.",
+        "Retrain this analysis monthly — feature importance can shift as market conditions and product mix change.",
+    ]
+
     return jsonify({
-        "feature_importance": explanation,
-        "directions": directions,
-        "chart": chart,
+        "feature_importance":    enriched_explanation,
+        "directions":            directions,
+        "correlations":          correlations,
+        "chart":                 chart,
+        "model_behaviour":       model_behaviour,
+        "how_to_use":            how_to_use,
         "insight": (
-            f"'{explanation[0]['feature']}' is the strongest profit driver "
-            f"({explanation[0]['pct']}% importance) with a "
-            f"{directions[explanation[0]['feature']]} correlation to profit."
-        )
+            f"'{top_f['feature']}' is the strongest profit driver ({top_f['pct']}% importance) "
+            f"with a {top_f['direction']} correlation to profit (r = {top_f['correlation']:+.4f}). "
+            f"This means: {top_f['impact_narrative']}"
+        ),
+        "plain_summary": (
+            f"In simple terms: the AI model predicts profit primarily based on '{top_f['feature']}'. "
+            + top_f["plain_english"]
+        ),
     })
 
 
