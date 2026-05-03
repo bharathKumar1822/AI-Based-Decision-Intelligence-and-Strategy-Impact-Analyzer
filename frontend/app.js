@@ -187,19 +187,18 @@ loadDefaultsBtn.addEventListener("click", async () => {
   showLoading("Loading default datasets…");
   try {
     const res = await apiFetch("/load-defaults", { method: "POST" });
-    const names = await refreshDatasetList();
-    if (names.length) {
-      // keep previous activeDataset if still valid, else pick first
-      if (!activeDataset || !names.includes(activeDataset)) {
-        activeDataset = names[0];
-        datasetSelect.value = activeDataset;
-      }
+    await refreshDatasetList();
+    // Do NOT auto-select — let the user pick from the dropdown
+    activeDataset = null;
+    datasetSelect.value = "";
+    const loadedNames = res.loaded || [];
+    const errNames    = res.errors || [];
+    if (loadedNames.length) {
+      showToast(`✅ Loaded: ${loadedNames.join(", ")} — select a dataset from the dropdown`, "success");
     }
-    showToast(`✅ Loaded: ${res.loaded.join(", ")}`, "success");
-    if (names.length >= 2) {
-      showToast(`📊 ${names.length} datasets ready — Comparison available!`, "success");
+    if (errNames.length) {
+      showToast(`⚠️ Some datasets failed: ${errNames.join(" | ")}`, "error");
     }
-    loadTab(activeTab);
   } catch(e) {
     showToast("❌ " + e.message, "error");
   } finally {
@@ -843,12 +842,9 @@ async function loadConclusion() {
 
 (async function init() {
   try {
-    const names = await refreshDatasetList();
-    if (names.length) {
-      activeDataset = names[0];
-      datasetSelect.value = activeDataset;
-      loadOverview();
-    }
+    await refreshDatasetList();
+    // Do NOT auto-select or auto-load — user must click "Load Default Datasets"
+    // and then choose a dataset from the dropdown.
   } catch(e) {
     showToast("⚠️ Backend not reachable. Click 'Load Default Datasets'.", "error");
   }
