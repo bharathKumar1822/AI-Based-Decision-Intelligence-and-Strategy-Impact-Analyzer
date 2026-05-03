@@ -235,7 +235,11 @@ csvUpload.addEventListener("change", async () => {
   const files = Array.from(csvUpload.files);
   if (!files.length) return;
 
-  const uploadedNames = [];
+  // Keep track of ALL datasets already in the dropdown + newly uploaded
+  const existingNames = Array.from(datasetSelect.options)
+    .map(o => o.value).filter(v => v);
+  const uploadedNames = [...existingNames];   // start from what's already shown
+
   showLoading(`Uploading ${files.length} file(s)…`);
 
   for (const file of files) {
@@ -246,7 +250,7 @@ csvUpload.addEventListener("change", async () => {
     try {
       loadingMsg.textContent = `Uploading ${file.name}…`;
       const res = await apiFetch("/upload", { method: "POST", body: fd });
-      uploadedNames.push(name);
+      if (!uploadedNames.includes(name)) uploadedNames.push(name);
       showToast(`✅ ${res.message} (${res.rows} rows)`, "success");
     } catch(e) {
       showToast(`❌ ${file.name}: ${e.message}`, "error");
@@ -256,16 +260,17 @@ csvUpload.addEventListener("change", async () => {
   csvUpload.value = "";   // reset so same file can be re-selected
 
   if (uploadedNames.length) {
-    // Unlock the dropdown showing ONLY the uploaded datasets
+    // Unlock dropdown with ALL uploaded datasets
     unlockDropdown(uploadedNames);
     renderDatasetChips(uploadedNames);
 
-    // Auto-select the last uploaded file
-    activeDataset = uploadedNames[uploadedNames.length - 1];
+    // Auto-select the last newly uploaded file
+    const lastFile = files[files.length - 1].name.replace(/\.csv$/i, "");
+    activeDataset = uploadedNames.includes(lastFile) ? lastFile : uploadedNames[uploadedNames.length - 1];
     datasetSelect.value = activeDataset;
 
     showToast(
-      `📂 ${uploadedNames.length} dataset(s) uploaded — "${activeDataset}" selected`,
+      `📂 ${uploadedNames.length} dataset(s) loaded — "${activeDataset}" selected`,
       "success"
     );
     loadTab(activeTab);
@@ -1090,7 +1095,7 @@ async function loadKpiFilters() {
   populate("filter-segment",  opts.segments   || []);
 
   document.getElementById("btn-apply-filters").onclick = async () => {
-    const r = document.getElementById("filter-region").value;
+    const r   = document.getElementById("filter-region").value;
     const cat = document.getElementById("filter-category").value;
     const seg = document.getElementById("filter-segment").value;
     const params = new URLSearchParams();
@@ -1112,48 +1117,78 @@ async function loadKpiFilters() {
   };
 }
 
-// ── AI CHAT WIDGET ──────────────────────────────────────────
-const chatToggle  = document.getElementById("chat-toggle");
-const chatPanel   = document.getElementById("chat-panel");
-const chatClose   = document.getElementById("chat-close");
-const chatInput   = document.getElementById("chat-input");
-const chatSend    = document.getElementById("chat-send");
-const chatMsgs    = document.getElementById("chat-messages");
+// ── AI CHAT WIDGET ────────────────────────────────────────────
+const chatToggle = document.getElementById("chat-toggle");
+const chatPanel  = document.getElementById("chat-panel");
+const chatClose  = document.getElementById("chat-close");
+const chatInput  = document.getElementById("chat-input");
+const chatSend   = document.getElementById("chat-send");
+const chatMsgs   = document.getElementById("chat-messages");
 
 chatToggle.addEventListener("click", () => chatPanel.classList.toggle("hidden"));
 chatClose.addEventListener("click",  () => chatPanel.classList.add("hidden"));
 
-function appendChat(msg, role) {
-  const el = document.createElement("div");
-  el.className = `chat-msg ${role}`;
-  el.innerHTML = msg;
-  chatMsgs.appendChild(el);
-  chatMsgs.scrollTop = chatMsgs.scrollHeight;
+// ── TEXT-TO-SPEECH ─────────────────────────────────────────
+let voiceOutputEnabled = false;
+const voiceOutBtn = document.getElementById("chat-voice-out");
+
+if (voiceOutBtn) {
+  voiceOutBtn.addEventListener("click", () => {
+    voiceOutputEnabled = !voiceOutputEnabled;
+    voiceOutBtn.style.opacity  = voiceOutputEnabled ? "1"   : "0.5";
+    voiceOutBtn.style.color    = voiceOutputEnabled ? "#4ade80" : "";
+    voiceOutBtn.title          = voiceOutputEnabled
+      ? "Voice output ON — click to disable"
+      : "Voice output OFF — click to enable";
+    if (voiceOutputEnabled) {
+      speak("Voice output enabled. I will read my answers aloud.");
+    } else {
+      window.speechSynthesis.cancel();
+    }
+  });
+}
+
+function speak(text) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();          // stop any current speech
+  // Strip HTML tags for clean speech
+  const clean = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  const utt   = new SpeechSynthesisUtterance(clean);
+  utt.lang  = "en-US";
+  utt.rate  = 1.0;
+  utt.pitch = 1.0;
+  window.speechSynthesis.speak(utt);
 }
 
 async function sendChat() {
   const q = chatInput.value.trim();
   if (!q) return;
-  if (!activeDataset) { appendChat("⚠️ Please load and select a dataset first.", "bot"); return; }
+  if (!activeDataset) {
+    appendChat("⚠️ Please load and select a dataset first.", "bot");
+    if (voiceOutputEnabled) speak("Please load and select a dataset first.");
+    return;
+  }
   appendChat(q, "user");
   chatInput.value = "";
-  appendChat("⏳ Thinking…", "bot");
+  const thinkingEl = appendChat("⏳ Thinking…", "bot");
   try {
     const data = await apiFetch(`/chat/${encodeURIComponent(activeDataset)}`, {
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ question: q })
     });
-    chatMsgs.lastChild.innerHTML = data.answer;
+    thinkingEl.innerHTML = data.answer;
+    chatMsgs.scrollTop   = chatMsgs.scrollHeight;
+    if (voiceOutputEnabled) speak(data.answer);
   } catch(e) {
-    chatMsgs.lastChild.innerHTML = `❌ ${e.message}`;
+    thinkingEl.innerHTML = `❌ ${e.message}`;
   }
 }
 
 chatSend.addEventListener("click", sendChat);
 chatInput.addEventListener("keydown", e => { if (e.key === "Enter") sendChat(); });
 
-// ── VOICE INPUT (Web Speech API) ────────────────────────────
+// ── VOICE INPUT (Web Speech API) ──────────────────────────
 const chatVoice = document.getElementById("chat-voice");
 if (chatVoice && (window.SpeechRecognition || window.webkitSpeechRecognition)) {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1165,6 +1200,7 @@ if (chatVoice && (window.SpeechRecognition || window.webkitSpeechRecognition)) {
   recognition.onstart = () => {
     chatVoice.textContent = "🔴";
     chatVoice.title = "Listening… speak now";
+    if (voiceOutputEnabled) window.speechSynthesis.cancel(); // stop TTS while listening
   };
   recognition.onresult = (event) => {
     const transcript = event.results[0][0].transcript;
@@ -1188,9 +1224,6 @@ if (chatVoice && (window.SpeechRecognition || window.webkitSpeechRecognition)) {
   chatVoice.style.opacity = "0.4";
   chatVoice.style.cursor = "not-allowed";
 }
-
-
-
 
 // ── EXPORT REPORT (PDF via print) ──────────────────────────
 const exportBtn = document.getElementById("btn-export-report");
