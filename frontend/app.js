@@ -146,14 +146,13 @@ async function refreshDatasetList(enableDropdown = false) {
 
 /** Show a pill/chip for each loaded dataset with a ✕ remove button */
 function renderDatasetChips(names) {
-  const bar   = document.getElementById("datasets-bar");
-  const chips = document.getElementById("dataset-chips");
+  const bar    = document.getElementById("datasets-bar");
+  const chips  = document.getElementById("dataset-chips");
   const cmpBtn = document.getElementById("btn-compare-now");
 
   if (!names.length) { bar.style.display = "none"; return; }
   bar.style.display = "flex";
 
-  // show Compare button only when 2+ datasets are loaded
   cmpBtn.style.display = names.length >= 2 ? "" : "none";
 
   chips.innerHTML = names.map(n => `
@@ -162,7 +161,6 @@ function renderDatasetChips(names) {
       <button class="chip-remove" data-name="${n}" title="Remove dataset">✕</button>
     </div>`).join("");
 
-  // click chip name → set as active dataset
   chips.querySelectorAll(".chip-name").forEach(el => {
     el.addEventListener("click", () => {
       activeDataset = el.dataset.name;
@@ -172,18 +170,24 @@ function renderDatasetChips(names) {
     });
   });
 
-  // click ✕ → remove dataset from server
   chips.querySelectorAll(".chip-remove").forEach(el => {
     el.addEventListener("click", async () => {
       const name = el.dataset.name;
       try {
         await apiFetch(`/remove/${encodeURIComponent(name)}`, { method: "DELETE" });
+        const remaining = names.filter(n => n !== name);
         if (activeDataset === name) {
-          activeDataset = "";
-          datasetSelect.value = "";
+          activeDataset = remaining.length ? remaining[0] : null;
         }
-        await refreshDatasetList();
-        // Do NOT auto-select after removal — user must pick
+        if (remaining.length) {
+          unlockDropdown(remaining);
+          datasetSelect.value = activeDataset || "";
+          renderDatasetChips(remaining);
+          if (activeDataset) loadTab(activeTab);
+        } else {
+          lockDropdown();
+          activeDataset = null;
+        }
         showToast(`🗑️ Removed: ${name}`, "info");
       } catch(e) {
         showToast("❌ " + e.message, "error");
@@ -231,10 +235,9 @@ csvUpload.addEventListener("change", async () => {
   const files = Array.from(csvUpload.files);
   if (!files.length) return;
 
-  let lastLoaded = "";
-  let successCount = 0;
-
+  const uploadedNames = [];
   showLoading(`Uploading ${files.length} file(s)…`);
+
   for (const file of files) {
     const name = file.name.replace(/\.csv$/i, "");
     const fd   = new FormData();
@@ -243,29 +246,32 @@ csvUpload.addEventListener("change", async () => {
     try {
       loadingMsg.textContent = `Uploading ${file.name}…`;
       const res = await apiFetch("/upload", { method: "POST", body: fd });
-      lastLoaded = name;
-      successCount++;
+      uploadedNames.push(name);
       showToast(`✅ ${res.message} (${res.rows} rows)`, "success");
     } catch(e) {
       showToast(`❌ ${file.name}: ${e.message}`, "error");
     }
   }
 
-  csvUpload.value = "";   // reset so same files can be re-selected
+  csvUpload.value = "";   // reset so same file can be re-selected
 
-  const names = await refreshDatasetList();
-  if (lastLoaded) {
-    activeDataset = lastLoaded;
+  if (uploadedNames.length) {
+    // Unlock the dropdown showing ONLY the uploaded datasets
+    unlockDropdown(uploadedNames);
+    renderDatasetChips(uploadedNames);
+
+    // Auto-select the last uploaded file
+    activeDataset = uploadedNames[uploadedNames.length - 1];
     datasetSelect.value = activeDataset;
-  }
 
-  // Auto-open comparison if 2+ datasets are now available
-  if (names.length >= 2) {
-    showToast(`📊 ${names.length} datasets loaded — Comparison is ready!`, "success");
+    showToast(
+      `📂 ${uploadedNames.length} dataset(s) uploaded — "${activeDataset}" selected`,
+      "success"
+    );
+    loadTab(activeTab);
   }
 
   hideLoading();
-  loadTab(activeTab);
 });
 
 // ── OVERVIEW ───────────────────────────────────────────────
