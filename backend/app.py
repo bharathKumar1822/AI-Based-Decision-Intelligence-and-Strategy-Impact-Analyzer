@@ -352,7 +352,7 @@ def upload_dataset():
 
 @app.route("/api/load-defaults", methods=["POST"])
 def load_defaults():
-    """Load the two built-in Superstore CSV files."""
+    """Load all built-in CSV files from the data/ folder."""
     base = ROOT_DIR / "data"   # works for both normal run and .exe
     files = {
         "Dataset A":        "superstore_dataset1.csv",
@@ -360,15 +360,23 @@ def load_defaults():
         "Global Dataset 6": "global dataset 6.csv",
     }
     loaded = []
+    errors = []
     for name, fname in files.items():
         path = base / fname
-        if path.exists():
+        if not path.exists():
+            errors.append(f"{name}: file not found at {path}")
+            continue
+        try:
             df = pd.read_csv(path, encoding="latin1")
+            # Normalize column names: strip spaces, replace underscores with spaces
+            df.columns = [c.strip().replace("_", " ") for c in df.columns]
             df = clean_df(df)
             datasets[name] = df
             ml_cache.pop(name, None)
             loaded.append(name)
-    return jsonify({"loaded": loaded})
+        except Exception as e:
+            errors.append(f"{name}: {str(e)}")
+    return jsonify({"loaded": loaded, "errors": errors})
 
 
 @app.route("/api/remove/<name>", methods=["DELETE"])
