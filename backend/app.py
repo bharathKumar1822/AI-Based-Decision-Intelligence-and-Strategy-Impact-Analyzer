@@ -10,6 +10,7 @@ import re
 import base64
 import traceback
 import datetime
+import threading
 from pathlib import Path
 
 import pandas as pd
@@ -72,8 +73,15 @@ def run_ml(df: pd.DataFrame) -> dict:
     if not {"Sales", "Quantity", "Profit"}.issubset(df.columns):
         return result
 
-    features = df[["Sales", "Quantity"]].values
-    target   = df["Profit"].values
+    # Subsample for extremely fast training on large datasets
+    max_train_samples = 5000
+    if len(df) > max_train_samples:
+        df_sample = df.sample(n=max_train_samples, random_state=42)
+    else:
+        df_sample = df
+
+    features = df_sample[["Sales", "Quantity"]].values
+    target   = df_sample["Profit"].values
 
     X_tr, X_te, y_tr, y_te = train_test_split(
         features, target, test_size=0.2, random_state=42
@@ -81,8 +89,8 @@ def run_ml(df: pd.DataFrame) -> dict:
 
     models = {
         "Linear Regression": LinearRegression(),
-        "Decision Tree":     DecisionTreeRegressor(random_state=42),
-        "Random Forest":     RandomForestRegressor(n_estimators=100, random_state=42),
+        "Decision Tree":     DecisionTreeRegressor(max_depth=8, min_samples_split=10, random_state=42),
+        "Random Forest":     RandomForestRegressor(n_estimators=5, max_depth=6, min_samples_split=10, random_state=42, n_jobs=1),
     }
 
     for name, mdl in models.items():
@@ -336,6 +344,15 @@ def upload_dataset():
         df = clean_df(df)
         datasets[name] = df
         ml_cache.pop(name, None)
+        # Pre-warm ML cache in background
+        def _prewarm_single(n, d):
+            try:
+                if n not in ml_cache:
+                    ml_cache[n] = run_ml(d)
+            except Exception:
+                pass
+        t = threading.Thread(target=_prewarm_single, args=(name, df), daemon=True)
+        t.start()
         return jsonify({
             "message": f"Dataset '{name}' loaded successfully",
             "rows": len(df),
@@ -370,7 +387,22 @@ def load_defaults():
             loaded.append(name)
         except Exception as e:
             errors.append(f"{name}: {str(e)}")
-    return jsonify({"loaded": loaded, "errors": errors})
+
+    # Pre-warm ML cache in background so compare/recommendations load instantly
+    def _prewarm(names):
+        for n in names:
+            try:
+                if n in datasets and n not in ml_cache:
+                    result = run_ml(datasets[n])
+                    if result:  # only cache if training succeeded
+                        ml_cache[n] = result
+            except Exception:
+                pass
+    if loaded:
+        t = threading.Thread(target=_prewarm, args=(list(loaded),), daemon=True)
+        t.start()
+
+    return jsonify({"loaded": loaded, "errors": errors, "warming": True})
 
 
 @app.route("/api/remove/<name>", methods=["DELETE"])
@@ -774,164 +806,176 @@ def strategy(name):
 def recommend(name):
     if name not in datasets:
         return jsonify({"error": "Dataset not found"}), 404
-    if name not in ml_cache:
-        ml_cache[name] = run_ml(datasets[name])
-    w          = detect_weaknesses(datasets[name])
-    best_model = ml_cache[name].get("best_model", "Random Forest")
-    rec        = build_recommendations(w, best_model)
-    return jsonify({"recommendations": rec})
+    try:
+        if name not in ml_cache:
+            ml_cache[name] = run_ml(datasets[name])
+        ml         = ml_cache[name]
+        w          = detect_weaknesses(datasets[name])
+        best_model = ml.get("best_model") or "Random Forest"
+        rec        = build_recommendations(w, best_model, datasets[name])
+        return jsonify({"recommendations": rec})
+    except Exception as e:
+        return jsonify({"error": f"Recommendation generation failed: {str(e)}", "trace": traceback.format_exc()}), 500
 
 
 # ── ROUTES — Multi-Dataset Comparison ─────────────────────────────
+
+@app.route("/api/warmup-compare", methods=["POST"])
+def warmup_compare():
+    """Pre-warm ML cache for all loaded datasets. Call this before opening compare tab."""
+    names_to_warm = [n for n in list(datasets.keys()) if n not in ml_cache]
+    if not names_to_warm:
+        return jsonify({"status": "already_ready", "datasets": list(datasets.keys())})
+
+    def _warm():
+        for n in names_to_warm:
+            try:
+                if n in datasets and n not in ml_cache:
+                    result = run_ml(datasets[n])
+                    if result:
+                        ml_cache[n] = result
+            except Exception:
+                pass
+
+    t = threading.Thread(target=_warm, daemon=True)
+    t.start()
+    return jsonify({"status": "warming", "queued": names_to_warm})
+
 
 @app.route("/api/compare", methods=["GET"])
 def compare():
     if len(datasets) < 2:
         return jsonify({"error": "Need at least 2 datasets for comparison"}), 400
 
-    comparison = {}
-    for n, df in datasets.items():
-        if n not in ml_cache:
-            ml_cache[n] = run_ml(df)
-        comparison[n] = {
-            "total_sales":      round(float(df["Sales"].sum()),  2) if "Sales"  in df.columns else 0,
-            "total_profit":     round(float(df["Profit"].sum()), 2) if "Profit" in df.columns else 0,
-            "avg_profit":       round(float(df["Profit"].mean()),2) if "Profit" in df.columns else 0,
-            "best_model":       ml_cache[n].get("best_model", "N/A"),
-            "predicted_profit": ml_cache[n].get("best_predicted_profit", 0),
+    try:
+        # ── Train ML for any datasets missing from cache (sequential, no threads) ──
+        for n in list(datasets.keys()):
+            if n not in ml_cache:
+                result = run_ml(datasets[n])
+                if result:
+                    ml_cache[n] = result
+
+        # ── Build comparison summary ──────────────────────────────────
+        comparison = {}
+        for n, df in datasets.items():
+            ml = ml_cache.get(n, {})
+            comparison[n] = {
+                "total_sales":      round(float(df["Sales"].sum()),  2) if "Sales"  in df.columns else 0,
+                "total_profit":     round(float(df["Profit"].sum()), 2) if "Profit" in df.columns else 0,
+                "avg_profit":       round(float(df["Profit"].mean()),2) if "Profit" in df.columns else 0,
+                "best_model":       ml.get("best_model", "N/A"),
+                "predicted_profit": ml.get("best_predicted_profit", 0),
+            }
+
+        best_company = max(comparison, key=lambda k: comparison[k]["total_profit"])
+        worst        = min(comparison, key=lambda k: comparison[k]["total_profit"])
+
+        # ── Chart ─────────────────────────────────────────────────────
+        names   = list(comparison.keys())
+        profits = [comparison[n]["total_profit"] for n in names]
+        sales   = [comparison[n]["total_sales"]  for n in names]
+
+        fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+        colors    = ["#6C63FF", "#FF6584", "#43CBFF", "#F7971E"][:len(names)]
+
+        axes[0].bar(names, profits, color=colors, edgecolor="none")
+        axes[0].set_title("Total Profit Comparison", fontweight="bold", color="white")
+        axes[0].set_ylabel("Profit ($)", color="white")
+        axes[0].tick_params(colors="white")
+
+        axes[1].bar(names, sales, color=colors, edgecolor="none")
+        axes[1].set_title("Total Sales Comparison", fontweight="bold", color="white")
+        axes[1].set_ylabel("Sales ($)", color="white")
+        axes[1].tick_params(colors="white")
+
+        for ax in axes:
+            ax.set_facecolor("#16213e")
+            for spine in ax.spines.values():
+                spine.set_color("#333366")
+        fig.patch.set_facecolor("#1a1a2e")
+        fig.tight_layout(pad=1.5)
+        chart_b64 = fig_to_b64(fig)
+
+        cross_suggestion = (
+            f"To improve '{worst}', adopt the strategy of '{best_company}': "
+            f"focus on high-profit categories and use {comparison[best_company]['best_model']} "
+            f"for demand forecasting."
+        )
+
+        best_data      = comparison[best_company]
+        worst_data     = comparison[worst]
+        best_ml        = ml_cache.get(best_company, {})
+        best_model_lbl = best_data["best_model"]
+        bkey           = best_ml.get("best_model_key", "")
+        best_mse       = best_ml.get(bkey, {}).get("mse", 0) if bkey and bkey in best_ml else 0
+        best_r2        = best_ml.get(bkey, {}).get("r2",  0) if bkey and bkey in best_ml else 0
+
+        profit_gap    = round(best_data["total_profit"] - worst_data["total_profit"], 2)
+        sales_gap     = round(best_data["total_sales"]  - worst_data["total_sales"],  2)
+        profit_margin = (
+            round(best_data["total_profit"] / best_data["total_sales"] * 100, 2)
+            if best_data["total_sales"] else 0
+        )
+
+        best_justification = {
+            "reason_for_selection": (
+                f"'{best_company}' was identified as the top-performing dataset because it achieved the highest "
+                f"total profit of ${best_data['total_profit']:,.2f} across all compared datasets — outperforming "
+                f"'{worst}' by ${abs(profit_gap):,.2f}. It also leads in total sales (${best_data['total_sales']:,.2f}) "
+                f"with a profit margin of {profit_margin:.1f}%, reflecting both strong revenue generation and "
+                f"efficient cost management relative to all other loaded datasets."
+            ),
+            "key_benefits": [
+                f"Highest total profit (${best_data['total_profit']:,.2f}) — strongest bottom-line performance across all datasets.",
+                f"Profit margin of {profit_margin:.1f}% demonstrates pricing efficiency and cost discipline.",
+                f"Best average per-order profit of ${best_data['avg_profit']:,.2f}, driving superior unit economics.",
+                f"Projected future profit of ${best_data['predicted_profit']:,.2f} based on ML model forecasting.",
+                f"Sales advantage of ${abs(sales_gap):,.2f} over the lowest-revenue dataset — stronger market penetration.",
+            ],
+            "algorithms_used": [
+                {
+                    "name": "Linear Regression", "icon": "📐",
+                    "purpose": "Establishes a linear profit prediction baseline using Sales and Quantity as input features.",
+                    "why_used": "Provides the fastest, most interpretable benchmark to detect linear profit patterns.",
+                },
+                {
+                    "name": "Decision Tree", "icon": "🌲",
+                    "purpose": "Learns rule-based profit patterns by recursively splitting data on feature thresholds.",
+                    "why_used": "Captures non-linear relationships such as discount cutoffs and quantity breakpoints.",
+                },
+                {
+                    "name": "Random Forest", "icon": "🌳",
+                    "purpose": "Aggregates predictions from multiple decision trees to reduce variance and overfitting.",
+                    "why_used": "Consistently delivers the highest accuracy — robust to outliers and seasonal fluctuations.",
+                },
+            ],
+            "effectiveness": (
+                f"On '{best_company}', {best_model_lbl} achieved an R\u00b2 of {best_r2:.4f} and MSE of {best_mse:,.4f}, "
+                f"explaining {round(best_r2*100, 1)}% of profit variance with minimal prediction error. "
+                f"This enables confident data-driven decisions on pricing, inventory levels, and discount policies."
+            ),
+            "strategic_advantages": [
+                f"Deploy {best_model_lbl} from '{best_company}' as the standard forecasting engine — reduces prediction error by up to 30%.",
+                f"The {profit_margin:.1f}% profit margin of '{best_company}' validates its pricing strategy as a proven model to replicate.",
+                f"A 10% growth simulation on '{best_company}' projects a future profit of ${round(best_data['predicted_profit'] * 1.1, 2):,.2f}.",
+                f"Cross-dataset knowledge transfer: top categories from '{best_company}' can help '{worst}' close the ${abs(profit_gap):,.2f} profit gap.",
+                "Shifting from reactive reporting to predictive intelligence enables proactive decisions 1\u20132 quarters ahead.",
+            ],
         }
 
-    best_company = max(comparison, key=lambda k: comparison[k]["total_profit"])
+        return jsonify({
+            "comparison":         comparison,
+            "best_company":       best_company,
+            "chart":              chart_b64,
+            "cross_suggestion":   cross_suggestion,
+            "best_justification": best_justification,
+        })
 
-    names   = list(comparison.keys())
-    profits = [comparison[n]["total_profit"] for n in names]
-    sales   = [comparison[n]["total_sales"]  for n in names]
-
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    colors    = ["#6C63FF", "#FF6584", "#43CBFF", "#F7971E"][:len(names)]
-
-    axes[0].bar(names, profits, color=colors, edgecolor="none")
-    axes[0].set_title("Total Profit Comparison", fontweight="bold", color="white")
-    axes[0].set_ylabel("Profit ($)", color="white")
-    axes[0].tick_params(colors="white")
-
-    axes[1].bar(names, sales, color=colors, edgecolor="none")
-    axes[1].set_title("Total Sales Comparison", fontweight="bold", color="white")
-    axes[1].set_ylabel("Sales ($)", color="white")
-    axes[1].tick_params(colors="white")
-
-    for ax in axes:
-        ax.set_facecolor("#16213e")
-        ax.spines[:].set_color("#333366")
-    fig.patch.set_facecolor("#1a1a2e")
-    chart_b64 = fig_to_b64(fig)
-
-    worst           = min(comparison, key=lambda k: comparison[k]["total_profit"])
-    cross_suggestion = (
-        f"To improve '{worst}', adopt the strategy of '{best_company}': "
-        f"focus on high-profit categories and use {comparison[best_company]['best_model']} "
-        f"for demand forecasting."
-    )
-
-    best_data      = comparison[best_company]
-    worst_data     = comparison[worst]
-    best_ml        = ml_cache[best_company]
-    best_model_lbl = best_data["best_model"]
-    bkey           = best_ml.get("best_model_key", "")
-    best_mse       = best_ml.get(bkey, {}).get("mse", 0) if bkey and bkey in best_ml else 0
-    best_r2        = best_ml.get(bkey, {}).get("r2",  0) if bkey and bkey in best_ml else 0
-
-    profit_gap    = round(best_data["total_profit"] - worst_data["total_profit"], 2)
-    sales_gap     = round(best_data["total_sales"]  - worst_data["total_sales"],  2)
-    profit_margin = (
-        round(best_data["total_profit"] / best_data["total_sales"] * 100, 2)
-        if best_data["total_sales"] else 0
-    )
-
-    best_justification = {
-        "reason_for_selection": (
-            f"'{best_company}' was identified as the top-performing dataset because it achieved the highest "
-            f"total profit of ${best_data['total_profit']:,.2f} across all compared datasets — outperforming "
-            f"'{worst}' by ${abs(profit_gap):,.2f}. It also leads in total sales (${best_data['total_sales']:,.2f}) "
-            f"with a profit margin of {profit_margin:.1f}%, reflecting both strong revenue generation and "
-            f"efficient cost management relative to all other loaded datasets."
-        ),
-        "key_benefits": [
-            f"Highest total profit (${best_data['total_profit']:,.2f}) — the strongest bottom-line performance across all datasets.",
-            f"Profit margin of {profit_margin:.1f}% demonstrates pricing efficiency and cost discipline.",
-            f"Best average per-order profit of ${best_data['avg_profit']:,.2f}, driving superior unit economics.",
-            f"Projected future profit of ${best_data['predicted_profit']:,.2f} based on ML model forecasting.",
-            f"Sales advantage of ${abs(sales_gap):,.2f} over the lowest-revenue dataset — indicating stronger market penetration.",
-        ],
-        "algorithms_used": [
-            {
-                "name":     "Linear Regression",
-                "icon":     "📐",
-                "purpose":  "Establishes a linear profit prediction baseline using Sales and Quantity as input features.",
-                "why_used": (
-                    "Provides the fastest, most interpretable benchmark. Used to detect whether profit "
-                    "trends follow a predictable linear pattern and to set a performance floor for other models."
-                ),
-            },
-            {
-                "name":     "Decision Tree",
-                "icon":     "🌲",
-                "purpose":  "Learns rule-based profit patterns by recursively splitting data on feature thresholds.",
-                "why_used": (
-                    "Captures non-linear relationships such as discount cutoffs and quantity breakpoints that "
-                    "drive profit. Useful for extracting interpretable business decision rules."
-                ),
-            },
-            {
-                "name":     "Random Forest",
-                "icon":     "🌳",
-                "purpose":  "Aggregates predictions from 100 decision trees to reduce variance and overfitting.",
-                "why_used": (
-                    "Consistently delivers the highest accuracy on diverse business datasets. Robust to "
-                    "outliers and seasonal fluctuations — making it the preferred production-grade model."
-                ),
-            },
-        ],
-        "effectiveness": (
-            f"On '{best_company}', {best_model_lbl} achieved an R\u00b2 of {best_r2:.4f} and MSE of {best_mse:,.4f}, "
-            f"explaining {round(best_r2*100, 1)}% of profit variance with minimal prediction error. "
-            f"This accuracy enables confident data-driven decisions on pricing, inventory levels, and discount "
-            f"policies — reducing guesswork and improving forecast reliability across all planning cycles."
-        ),
-        "strategic_advantages": [
-            (
-                f"Deploy {best_model_lbl} from '{best_company}' as the standard forecasting engine across all "
-                "business units to reduce profit prediction error by up to 30% vs. traditional linear methods."
-            ),
-            (
-                f"The {profit_margin:.1f}% profit margin of '{best_company}' validates its pricing and discount "
-                "strategy as a proven model — other underperforming datasets should replicate its category "
-                "focus and discount discipline to drive margin recovery."
-            ),
-            (
-                f"A 10% growth simulation on '{best_company}' projects a future profit of "
-                f"${round(best_data['predicted_profit'] * 1.1, 2):,.2f} — the highest upside across all "
-                "compared datasets, making it the top priority for investment and expansion."
-            ),
-            (
-                "Cross-dataset knowledge transfer: the top-performing product categories, regional strategies, "
-                f"and customer segments identified in '{best_company}' can be directly adopted by "
-                f"'{worst}' to accelerate its turnaround and close the ${abs(profit_gap):,.2f} profit gap."
-            ),
-            (
-                "Shifting from reactive reporting to predictive intelligence — using this dataset's ML accuracy "
-                "as the enterprise benchmark — enables proactive business decisions 1\u20132 quarters ahead of market changes."
-            ),
-        ],
-    }
-
-    return jsonify({
-        "comparison":         comparison,
-        "best_company":       best_company,
-        "chart":              chart_b64,
-        "cross_suggestion":   cross_suggestion,
-        "best_justification": best_justification,
-    })
+    except Exception as e:
+        return jsonify({
+            "error": f"Comparison failed: {str(e)}",
+            "trace": traceback.format_exc()
+        }), 500
 
 
 # ── ROUTES — Full Analysis (single call for all phases) ────────────
@@ -1417,11 +1461,18 @@ def explain(name):
     if not {"Sales", "Quantity", "Profit"}.issubset(df.columns):
         return jsonify({"error": "Required columns missing"}), 400
 
-    features = df[["Sales", "Quantity"]].values
-    target   = df["Profit"].values
+    # Subsample for extremely fast training on large datasets
+    max_train_samples = 10000
+    if len(df) > max_train_samples:
+        df_sample = df.sample(n=max_train_samples, random_state=42)
+    else:
+        df_sample = df
+
+    features = df_sample[["Sales", "Quantity"]].values
+    target   = df_sample["Profit"].values
     X_tr, X_te, y_tr, y_te = train_test_split(features, target, test_size=0.2, random_state=42)
 
-    rf          = RandomForestRegressor(n_estimators=100, random_state=42)
+    rf          = RandomForestRegressor(n_estimators=20, max_depth=10, min_samples_split=10, random_state=42, n_jobs=-1)
     rf.fit(X_tr, y_tr)
     importances = rf.feature_importances_.tolist()
 

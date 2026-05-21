@@ -665,9 +665,60 @@ async function loadRecommend() {
 
 // ── COMPARE ────────────────────────────────────────────────
 
+let _compareRetryTimer = null;
+
 async function loadCompare() {
   const container = document.getElementById("compare-content");
-  showLoading("Comparing datasets…");
+
+  // Check datasets count first
+  let datasetNames = [];
+  try {
+    const dsList = await apiFetch("/datasets");
+    datasetNames = dsList.datasets || [];
+  } catch(e) { /* ignore */ }
+
+  if (datasetNames.length < 2) {
+    hideLoading();
+    container.innerHTML = emptyState("⚖️", "Need at least 2 datasets", "Upload or load 2 or more datasets, then come back here.");
+    return;
+  }
+
+  showLoading("Preparing comparison… training ML models");
+
+  // Check how many are already cached by calling warmup
+  let warmupStatus = "warming";
+  try {
+    const wu = await apiFetch("/warmup-compare", { method: "POST" });
+    warmupStatus = wu.status || "warming";
+  } catch(e) { /* continue anyway */ }
+
+  // If not ready yet, show progressive message and poll
+  if (warmupStatus !== "already_ready") {
+    container.innerHTML = `<div class="empty-state">
+      <div class="empty-icon">⚙️</div>
+      <h3>Training ML Models…</h3>
+      <p style="color:var(--text-secondary);margin-bottom:16px">Training machine learning models on ${datasetNames.length} datasets. This takes 5–15 seconds on first run.</p>
+      <div style="width:200px;height:6px;background:rgba(108,99,255,0.15);border-radius:4px;margin:0 auto 16px">
+        <div id="compare-progress" style="width:10%;height:100%;background:var(--accent);border-radius:4px;transition:width 0.5s"></div>
+      </div>
+      <p id="compare-wait-msg" style="color:var(--text-secondary);font-size:0.83rem">Please wait…</p>
+    </div>`;
+
+    // Animate progress bar
+    let pct = 10;
+    const progBar = document.getElementById("compare-progress");
+    const waitMsg = document.getElementById("compare-wait-msg");
+    const progressTimer = setInterval(() => {
+      pct = Math.min(90, pct + 8);
+      if (progBar) progBar.style.width = pct + "%";
+      if (waitMsg) waitMsg.textContent = pct < 40 ? "Loading data…" : pct < 70 ? "Training models…" : "Almost ready…";
+    }, 600);
+
+    // Wait for models to be ready (poll for up to 30s)
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    clearInterval(progressTimer);
+  }
+
   try {
     const data = await apiFetch("/compare");
     const { comparison, best_company, chart, cross_suggestion, best_justification: bj } = data;
@@ -720,7 +771,7 @@ async function loadCompare() {
           </div>
 
           <div class="cj-section">
-            <div class="cj-section-label">🤖 Algorithms & Models Used</div>
+            <div class="cj-section-label">🤖 Algorithms &amp; Models Used</div>
             <div class="cj-algo-grid">${algos}</div>
           </div>
 
@@ -761,10 +812,19 @@ async function loadCompare() {
         <p>${cross_suggestion}</p>
       </div>`;
   } catch(e) {
-    container.innerHTML = emptyState("⚖️", "Need at least 2 datasets",
-      e.message.includes("Need at least 2")
-        ? "Upload or load 2 or more datasets, then come back here."
-        : e.message);
+    const isNeedTwo = e.message && e.message.includes("Need at least 2");
+    const isTimeout = e.message && (e.message.includes("timeout") || e.message.includes("504") || e.message.includes("502") || e.message.includes("Failed to fetch"));
+    if (isNeedTwo) {
+      container.innerHTML = emptyState("⚖️", "Need at least 2 datasets", "Upload or load 2 or more datasets, then come back here.");
+    } else {
+      container.innerHTML = `<div class="empty-state">
+        <div class="empty-icon">${isTimeout ? "⏳" : "❌"}</div>
+        <h3>${isTimeout ? "Server is Processing…" : "Comparison Error"}</h3>
+        <p style="color:var(--text-secondary);margin-bottom:16px">${e.message}</p>
+        ${isTimeout ? "<p style='color:var(--text-secondary);font-size:0.87rem'>The server is training ML models. This may take up to 30 seconds on a cold start. Please retry.</p>" : ""}
+        <button class="btn btn-primary" style="margin-top:12px" onclick="loadCompare()">🔄 Retry Comparison</button>
+      </div>`;
+    }
   } finally {
     hideLoading();
   }
@@ -1122,6 +1182,16 @@ async function loadKpiFilters() {
 }
 
 // ── AI CHAT WIDGET ────────────────────────────────────────────
+
+function appendChat(text, role) {
+  const div = document.createElement("div");
+  div.className = `chat-msg ${role}`;
+  div.innerHTML = text;
+  chatMsgs.appendChild(div);
+  chatMsgs.scrollTop = chatMsgs.scrollHeight;
+  return div;
+}
+
 const chatToggle = document.getElementById("chat-toggle");
 const chatPanel  = document.getElementById("chat-panel");
 const chatClose  = document.getElementById("chat-close");
