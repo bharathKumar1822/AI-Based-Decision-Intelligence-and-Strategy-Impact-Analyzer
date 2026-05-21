@@ -1139,7 +1139,6 @@ async function loadExplainability() {
   } finally { hideLoading(); }
 }
 
-
 // ── KPI FILTERS ─────────────────────────────────────────────
 async function loadKpiFilters() {
   if (!activeDataset) return;
@@ -1181,7 +1180,15 @@ async function loadKpiFilters() {
   };
 }
 
-// ── AI CHAT WIDGET ────────────────────────────────────────────
+// ── BK AI CHAT WIDGET ─────────────────────────────────────────────
+
+// DOM refs for chat
+const chatToggle = document.getElementById("chat-toggle");
+const chatPanel  = document.getElementById("chat-panel");
+const chatClose  = document.getElementById("chat-close");
+const chatInput  = document.getElementById("chat-input");
+const chatSend   = document.getElementById("chat-send");
+const chatMsgs   = document.getElementById("chat-messages");
 
 function appendChat(text, role) {
   const div = document.createElement("div");
@@ -1191,13 +1198,6 @@ function appendChat(text, role) {
   chatMsgs.scrollTop = chatMsgs.scrollHeight;
   return div;
 }
-
-const chatToggle = document.getElementById("chat-toggle");
-const chatPanel  = document.getElementById("chat-panel");
-const chatClose  = document.getElementById("chat-close");
-const chatInput  = document.getElementById("chat-input");
-const chatSend   = document.getElementById("chat-send");
-const chatMsgs   = document.getElementById("chat-messages");
 
 chatToggle.addEventListener("click", () => chatPanel.classList.toggle("hidden"));
 chatClose.addEventListener("click",  () => chatPanel.classList.add("hidden"));
@@ -1211,11 +1211,11 @@ if (voiceOutBtn) {
     voiceOutputEnabled = !voiceOutputEnabled;
     voiceOutBtn.style.opacity  = voiceOutputEnabled ? "1"   : "0.5";
     voiceOutBtn.style.color    = voiceOutputEnabled ? "#4ade80" : "";
-    voiceOutBtn.title          = voiceOutputEnabled
+    voiceOutBtn.title = voiceOutputEnabled
       ? "Voice output ON — click to disable"
       : "Voice output OFF — click to enable";
     if (voiceOutputEnabled) {
-      speak("Voice output enabled. I will read my answers aloud.");
+      speak("Voice output enabled. Hi! I am BK. How can I help you?");
     } else {
       window.speechSynthesis.cancel();
     }
@@ -1224,83 +1224,152 @@ if (voiceOutBtn) {
 
 function speak(text) {
   if (!window.speechSynthesis) return;
-  window.speechSynthesis.cancel();          // stop any current speech
-  // Strip HTML tags for clean speech
+  window.speechSynthesis.cancel();
   const clean = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
   const utt   = new SpeechSynthesisUtterance(clean);
   utt.lang  = "en-US";
   utt.rate  = 1.0;
-  utt.pitch = 1.0;
+  utt.pitch = 1.05;
   window.speechSynthesis.speak(utt);
 }
 
-async function sendChat() {
-  const q = chatInput.value.trim();
+// ── Greeting detection ────────────────────────────────────
+function isGreeting(text) {
+  const greetRegex = /^(hi+|hello|hey|howdy|good\s*(morning|afternoon|evening|day)|what'?s up|greetings|namaste|sup|hiya|hi\s+bk|hello\s+bk|hey\s+bk|bk)[\s!?.]*$/i;
+  return greetRegex.test(text.trim());
+}
+
+// ── Main chat send function ───────────────────────────────
+async function sendChat(autoQuestion) {
+  const q = (autoQuestion !== undefined ? autoQuestion : chatInput.value).trim();
   if (!q) return;
-  if (!activeDataset) {
-    appendChat("⚠️ Please load and select a dataset first.", "bot");
-    if (voiceOutputEnabled) speak("Please load and select a dataset first.");
+
+  // If greeting and chat panel is closed, open it
+  if (isGreeting(q)) {
+    chatPanel.classList.remove("hidden");
+    chatInput.value = "";
+
+    // Auto-activate voice output for greetings
+    if (!voiceOutputEnabled && window.speechSynthesis) {
+      voiceOutputEnabled = true;
+      if (voiceOutBtn) {
+        voiceOutBtn.style.opacity = "1";
+        voiceOutBtn.style.color   = "#4ade80";
+        voiceOutBtn.title = "Voice output ON — click to disable";
+      }
+    }
+
+    appendChat(q, "user");
+    const thinkEl = appendChat("⏳ BK is responding…", "bot");
+
+    const bkGreeting = (
+      "👋 <strong>Hi! I am BK, your AI Decision Intelligence Assistant.</strong><br><br>" +
+      "I can help you explore every aspect of your business data with deep, insightful analysis:<br><br>" +
+      "📊 <strong>Overview & KPIs</strong> — Sales, profit, orders, customers<br>" +
+      "⚠️ <strong>Weakness Detection</strong> — Loss-making products, underperforming regions<br>" +
+      "🔮 <strong>ML Predictions</strong> — Best model selection, profit forecasting<br>" +
+      "⚙️ <strong>Strategy Simulation</strong> — What-if growth analysis<br>" +
+      "🚨 <strong>Risk & Anomaly Detection</strong> — Outliers and profit drops<br>" +
+      "💡 <strong>Recommendations</strong> — AI-generated action plans<br><br>" +
+      (activeDataset
+        ? `Currently analyzing: <strong>${activeDataset}</strong>. How can I help you today? 🚀`
+        : "Please <strong>load a dataset</strong> to unlock full analysis capabilities! 🚀")
+    );
+    thinkEl.innerHTML = bkGreeting;
+    chatMsgs.scrollTop = chatMsgs.scrollHeight;
+    speak("Hi, I am BK. How can I help you?");
     return;
   }
+
+  // Normal question flow
+  if (autoQuestion === undefined) chatInput.value = "";
   appendChat(q, "user");
-  chatInput.value = "";
-  const thinkingEl = appendChat("⏳ Thinking…", "bot");
+  const thinkingEl = appendChat("⏳ BK is thinking…", "bot");
+
   try {
-    const data = await apiFetch(`/chat/${encodeURIComponent(activeDataset)}`, {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ question: q })
-    });
+    let data;
+    if (!activeDataset) {
+      data = await apiFetch("/chat-global", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ question: q })
+      });
+    } else {
+      data = await apiFetch(`/chat/${encodeURIComponent(activeDataset)}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ question: q })
+      });
+    }
     thinkingEl.innerHTML = data.answer;
     chatMsgs.scrollTop   = chatMsgs.scrollHeight;
     if (voiceOutputEnabled) speak(data.answer);
   } catch(e) {
-    thinkingEl.innerHTML = `❌ ${e.message}`;
+    thinkingEl.innerHTML = `❌ Sorry, I encountered an error: ${e.message}`;
   }
 }
 
-chatSend.addEventListener("click", sendChat);
+chatSend.addEventListener("click", () => sendChat());
 chatInput.addEventListener("keydown", e => { if (e.key === "Enter") sendChat(); });
 
 // ── VOICE INPUT (Web Speech API) ──────────────────────────
 const chatVoice = document.getElementById("chat-voice");
 if (chatVoice && (window.SpeechRecognition || window.webkitSpeechRecognition)) {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const recognition = new SpeechRecognition();
-  recognition.lang = "en-US";
-  recognition.continuous = false;
-  recognition.interimResults = false;
+  const bkRecognition = new SpeechRecognition();
+  bkRecognition.lang = "en-US";
+  bkRecognition.continuous = false;
+  bkRecognition.interimResults = false;
 
-  recognition.onstart = () => {
+  bkRecognition.onstart = () => {
     chatVoice.textContent = "🔴";
     chatVoice.title = "Listening… speak now";
-    if (voiceOutputEnabled) window.speechSynthesis.cancel(); // stop TTS while listening
+    chatVoice.style.background = "rgba(255,100,100,0.2)";
+    if (voiceOutputEnabled) window.speechSynthesis.cancel();
   };
-  recognition.onresult = (event) => {
+
+  bkRecognition.onresult = (event) => {
     const transcript = event.results[0][0].transcript;
+    chatVoice.textContent = "🎤";
+    chatVoice.title = "Speak your question";
+    chatVoice.style.background = "";
     chatInput.value = transcript;
+
+    // If greeting detected by voice, auto-respond with BK greeting + open panel
+    if (isGreeting(transcript)) {
+      chatPanel.classList.remove("hidden");
+      sendChat(transcript);
+    } else {
+      sendChat();
+    }
+  };
+
+  bkRecognition.onerror = (e) => {
     chatVoice.textContent = "🎤";
     chatVoice.title = "Speak your question";
-    sendChat();
+    chatVoice.style.background = "";
+    if (e.error !== "no-speech") {
+      appendChat("⚠️ Voice recognition failed. Please check microphone permissions.", "bot");
+    }
   };
-  recognition.onerror = () => {
-    chatVoice.textContent = "🎤";
-    chatVoice.title = "Voice failed — try again";
-    appendChat("⚠️ Voice recognition failed. Please check microphone permissions.", "bot");
-  };
-  recognition.onend = () => {
+
+  bkRecognition.onend = () => {
     chatVoice.textContent = "🎤";
     chatVoice.title = "Speak your question";
+    chatVoice.style.background = "";
   };
-  chatVoice.addEventListener("click", () => recognition.start());
+
+  chatVoice.addEventListener("click", () => {
+    try { bkRecognition.start(); } catch(e) { /* already running */ }
+  });
 } else if (chatVoice) {
   chatVoice.title = "Voice not supported in this browser";
   chatVoice.style.opacity = "0.4";
   chatVoice.style.cursor = "not-allowed";
 }
 
-// ── EXPORT REPORT (PDF via print) ──────────────────────────
 const exportBtn = document.getElementById("btn-export-report");
+
 if (exportBtn) {
   exportBtn.addEventListener("click", async () => {
     if (!activeDataset) { showToast("Select a dataset first","info"); return; }
