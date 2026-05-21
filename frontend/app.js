@@ -2,7 +2,11 @@
    app.js  —  Decision Intelligence Analyzer frontend logic
    ============================================================ */
 
-const API = "https://ai-based-decision-intelligence-and-hh6v.onrender.com/api";
+// Auto-detect backend: use relative path when served by Flask, Render URL when on Vercel/external
+const RENDER_API = "https://ai-based-decision-intelligence-and-hh6v.onrender.com/api";
+const API = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+  ? "/api"
+  : RENDER_API;
 
 // ── State ──────────────────────────────────────────────────
 let activeDataset = "";

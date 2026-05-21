@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "outputDirectory": "frontend",
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "https://ai-based-decision-intelligence-and-hh6v.onrender.com/api/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/frontend/$1"
+    }
+  ]
+}

@@ -4,18 +4,18 @@ __pycache__/
 *$py.class
 *.pyo
 *.pyd
-.Python
+
+# === PyInstaller / Build ===
+dist/
+build/
+src/
+*.spec
 
 # === Virtual Environments ===
 .venv/
 venv/
 env/
 ENV/
-
-# === PyInstaller Build Artifacts ===
-dist/
-build/
-*.spec
 
 # === Environment Variables ===
 .env
@@ -26,9 +26,6 @@ build/
 .vscode/
 .idea/
 *.suo
-*.ntvs*
-*.njsproj
-*.sln
 
 # === OS Files ===
 .DS_Store
@@ -39,27 +36,15 @@ desktop.ini
 *.log
 logs/
 
-# === Node (for frontend) ===
+# === Node ===
 node_modules/
 .npm
+
+# === Vercel ===
 .vercel
 
-# === Outputs / Generated Files ===
+# === Generated Outputs ===
 outputs/
-*.png
-*.jpg
-*.jpeg
-
-# === Android Build ===
-android/.gradle/
-android/build/
-android/local.properties
-
-# === Data files (large datasets — tracked intentionally for Render) ===
-# data/*.csv   <-- intentionally NOT ignored; required by backend on Render
-
 
 # === Misc ===
-*.bat
 *.spec
-exe_entry.py
