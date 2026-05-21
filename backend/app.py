@@ -1284,10 +1284,6 @@ def anomaly(name):
     })
 
 
-# ── BK AI Assistant — Comprehensive NLP Chat ───────────────────────
-
-
-
 # ── AI Decision Engine ─────────────────────────────────────────────
 
 @app.route("/api/decision-engine/<name>", methods=["GET"])
