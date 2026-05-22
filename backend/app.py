@@ -37,7 +37,32 @@ ROOT_DIR     = Path(__file__).parent.parent
 FRONTEND_DIR = ROOT_DIR / "frontend"
 
 app = Flask(__name__, static_folder=str(FRONTEND_DIR), static_url_path="")
-CORS(app)
+
+# ── CORS: allow Vercel frontend + local development ────────────────
+# Explicitly list all trusted origins. Add any custom domain here too.
+import re as _re
+
+def _cors_origin_check(origin):
+    """Allow the Vercel project domain, all Vercel preview URLs, and localhost."""
+    if origin is None:
+        return False
+    # Exact production URL
+    if origin == "https://decision-intelligence-frontend.vercel.app":
+        return True
+    # Any Vercel preview deploy for this project
+    if _re.match(r"https://decision-intelligence-frontend-[a-z0-9]+-[a-z0-9]+\.vercel\.app", origin):
+        return True
+    # Local development
+    if origin in ("http://localhost:5000", "http://localhost:3000",
+                  "http://127.0.0.1:5000", "http://127.0.0.1:3000"):
+        return True
+    return False
+
+CORS(
+    app,
+    resources={r"/api/*": {"origins": _cors_origin_check}},
+    supports_credentials=False,
+)
 
 # ── In-memory store  (keyed by dataset name) ───────────────────────
 datasets: dict[str, pd.DataFrame] = {}
@@ -1627,6 +1652,15 @@ def report_meta(name):
         "top_recommendation": "Deploy ML-driven pricing and eliminate loss-making sub-categories within 60 days.",
         "projected_growth":  "+10% profit with recommended strategy application",
     })
+
+
+# ── Keep-Alive Ping (for UptimeRobot / external cron pingers) ───────────
+# Register this endpoint at https://uptimerobot.com (free) every 5 minutes
+# to prevent Render free plan from sleeping.
+
+@app.route("/api/ping", methods=["GET", "HEAD"])
+def ping():
+    return jsonify({"status": "ok", "ts": datetime.datetime.utcnow().isoformat()})
 
 
 # ── Live Refresh Status ────────────────────────────────────────────

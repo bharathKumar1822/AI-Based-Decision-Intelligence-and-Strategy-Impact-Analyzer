@@ -2,11 +2,9 @@
    app.js  —  Decision Intelligence Analyzer frontend logic
    ============================================================ */
 
-// Auto-detect backend: use relative path when served by Flask, Render URL when on Vercel/external
-const RENDER_API = "https://ai-based-decision-intelligence-and-hh6v.onrender.com/api";
-const API = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-  ? "/api"
-  : RENDER_API;
+// Always use relative /api — Vercel proxy rewrites to Render in production,
+// and Flask serves /api directly in local development.
+const API = "/api";
 
 // ── State ──────────────────────────────────────────────────
 let activeDataset = "";
@@ -55,6 +53,22 @@ async function apiFetch(path, opts = {}) {
     throw new Error(err.error || res.statusText);
   }
   return res.json();
+}
+
+// Retry fetching with exponential backoff — handles Render cold-start (30-60s spin-up)
+async function apiFetchWithRetry(path, opts = {}, maxRetries = 5, baseDelayMs = 8000) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await apiFetch(path, opts);
+    } catch (e) {
+      const isNetworkError = e.message === "Failed to fetch" || e.message.includes("NetworkError") || e.message.includes("502") || e.message.includes("503") || e.message.includes("504");
+      if (!isNetworkError || attempt === maxRetries) throw e;
+      const delay = baseDelayMs * Math.pow(1.5, attempt);
+      const secondsLeft = Math.round((baseDelayMs * (Math.pow(1.5, maxRetries + 1) - 1) / (1.5 - 1) - delay * attempt) / 1000);
+      showToast(`⏳ Server is waking up… retrying (attempt ${attempt + 1}/${maxRetries}). Please wait ~${Math.round(delay / 1000)}s`, "info");
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
 }
 
 function emptyState(icon, title, sub) {
@@ -940,9 +954,10 @@ async function loadConclusion() {
   // ALWAYS start locked — user must click "Load Default Datasets"
   lockDropdown();
   try {
-    await apiFetch("/datasets"); // just a liveness check, no dropdown interaction
+    // Use retry on initial load — Render free tier may be cold-starting (30-60s)
+    await apiFetchWithRetry("/datasets");
   } catch(e) {
-    showToast("⚠️ Backend not reachable. Start the server and refresh.", "error");
+    showToast("⚠️ Backend unreachable. If on Render free plan, wait 60s and refresh the page.", "error");
   }
 })();
 
@@ -1198,14 +1213,24 @@ if (exportBtn) {
 
 // ── LIVE REFRESH STATUS ─────────────────────────────────────
 const liveDot = document.getElementById("live-indicator");
+let _wasOffline = false;
+
 async function checkLiveStatus() {
   try {
     const data = await apiFetch("/refresh-status");
+    if (_wasOffline) {
+      showToast("✅ Backend is back online!", "success");
+      _wasOffline = false;
+    }
     liveDot.classList.remove("offline");
     liveDot.title = `Backend live · ${data.datasets_loaded} dataset(s) · ${data.server_time}`;
   } catch {
+    if (!_wasOffline) {
+      showToast("🔴 Backend offline or waking up (Render free plan). Please wait 30–60s and retry.", "error");
+      _wasOffline = true;
+    }
     liveDot.classList.add("offline");
-    liveDot.title = "Backend offline";
+    liveDot.title = "Backend offline — Render may be waking up (free plan spins down after inactivity)";
   }
 }
 checkLiveStatus();
