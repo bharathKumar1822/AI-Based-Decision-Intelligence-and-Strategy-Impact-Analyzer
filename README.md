@@ -8,7 +8,7 @@
 
 | Service | URL | Status |
 |---------|-----|--------|
-| 🖥️ **Frontend (Vercel)** | [decision-intelligence-frontend-iota.vercel.app](https://decision-intelligence-frontend-iota.vercel.app) | ✅ Live |
+| 🖥️ **Frontend (Vercel)** | [decision-intelligence-project.vercel.app](https://decision-intelligence-project.vercel.app/) | ✅ Live |
 | ⚙️ **Backend + Full App (Render)** | [ai-based-decision-intelligence-and-hh6v.onrender.com](https://ai-based-decision-intelligence-and-hh6v.onrender.com) | ✅ Live |
 | 📁 **GitHub** | [AI-Based-Decision-Intelligence-and-Strategy-Impact-Analyzer](https://github.com/bharathKumar1822/AI-Based-Decision-Intelligence-and-Strategy-Impact-Analyzer) | ✅ Updated |
 
