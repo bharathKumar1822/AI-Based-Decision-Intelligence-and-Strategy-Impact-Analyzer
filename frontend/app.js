@@ -1013,12 +1013,11 @@ async function startWakeupSequence(maxWaitMs = 90000) {
     
     // Check if there are already datasets loaded on the server (e.g. from previous sessions)
     const existing = await refreshDatasetList(true);
+    activeDataset = "";
+    datasetSelect.value = "";
+    loadOverview();
     if (existing && existing.length) {
-      activeDataset = existing[0];
-      datasetSelect.value = activeDataset;
-      renderDatasetChips(existing);
-      switchTab("overview");
-      showToast("🔌 Connected to backend server.", "success");
+      showToast("🔌 Connected to backend server. Please select a dataset to begin.", "success");
     } else {
       showToast("🔌 Connected to backend server. Please click 'Load Default Datasets' or upload your own to begin.", "success");
     }
