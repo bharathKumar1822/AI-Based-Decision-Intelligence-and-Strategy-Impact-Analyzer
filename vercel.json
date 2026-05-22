@@ -14,8 +14,12 @@
       "destination": "https://ai-based-decision-intelligence-and-hh6v.onrender.com/api/:path*"
     },
     {
-      "source": "/:path*",
-      "destination": "/frontend/:path*"
+      "source": "/",
+      "destination": "/frontend/index.html"
+    },
+    {
+      "source": "/((?!frontend/).*)",
+      "destination": "/frontend/$1"
     }
   ]
 }
