@@ -6,7 +6,7 @@
       "src": "/api/(.*)",
       "dest": "https://ai-based-decision-intelligence-and-hh6v.onrender.com/api/$1",
       "headers": {
-        "Access-Control-Allow-Origin": "https://decision-intelligence-frontend.vercel.app",
+        "Access-Control-Allow-Origin": "https://decision-intelligence-frontend-iota.vercel.app",
         "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type"
       }

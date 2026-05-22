@@ -46,11 +46,14 @@ def _cors_origin_check(origin):
     """Allow the Vercel project domain, all Vercel preview URLs, and localhost."""
     if origin is None:
         return False
-    # Exact production URL
-    if origin == "https://decision-intelligence-frontend.vercel.app":
-        return True
-    # Any Vercel preview deploy for this project
-    if _re.match(r"https://decision-intelligence-frontend-[a-z0-9]+-[a-z0-9]+\.vercel\.app", origin):
+    # Any deployment of this project on Vercel (production + all preview slugs)
+    # Matches: decision-intelligence-frontend-iota.vercel.app
+    #          decision-intelligence-frontend-abc123-user.vercel.app  (preview)
+    #          decision-intelligence-frontend.vercel.app              (canonical)
+    if _re.match(
+        r"https://decision-intelligence-frontend(-[a-z0-9]+)*\.vercel\.app",
+        origin
+    ):
         return True
     # Local development
     if origin in ("http://localhost:5000", "http://localhost:3000",
