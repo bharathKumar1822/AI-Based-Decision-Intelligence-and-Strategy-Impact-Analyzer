@@ -15,7 +15,7 @@
     },
     {
       "source": "/",
-      "destination": "/frontend/index.html"
+      "destination": "/frontend"
     },
     {
       "source": "/((?!frontend/).*)",
