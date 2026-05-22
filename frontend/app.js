@@ -2,9 +2,13 @@
    app.js  —  Decision Intelligence Analyzer frontend logic
    ============================================================ */
 
-// Always use relative /api — Vercel proxy rewrites to Render in production,
-// and Flask serves /api directly in local development.
-const API = "/api";
+// Dynamic API URL:
+// - Use relative "/api" locally so it maps perfectly to Flask's local runner.
+// - Use the direct Render backend URL in production to bypass Vercel Hobby's strict 10s gateway timeout
+//   and completely avoid Vercel proxy/rewrite routing bugs.
+const API = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+  ? "/api"
+  : "https://ai-based-decision-intelligence-and-hh6v.onrender.com/api";
 
 // ── State ──────────────────────────────────────────────────
 let activeDataset = "";

@@ -1,24 +1,11 @@
 {
   "version": 2,
   "outputDirectory": "frontend",
-  "routes": [
+  "cleanUrls": true,
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "https://ai-based-decision-intelligence-and-hh6v.onrender.com/api/$1",
-      "headers": {
-        "Access-Control-Allow-Origin": "https://decision-intelligence-frontend-iota.vercel.app",
-        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type"
-      }
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/frontend/$1",
-      "headers": {
-        "Cache-Control": "public, max-age=0, must-revalidate",
-        "X-Content-Type-Options": "nosniff",
-        "X-Frame-Options": "DENY"
-      }
+      "source": "/api/:path*",
+      "destination": "https://ai-based-decision-intelligence-and-hh6v.onrender.com/api/:path*"
     }
   ]
 }
