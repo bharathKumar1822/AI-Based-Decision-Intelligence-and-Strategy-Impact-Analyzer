@@ -1321,47 +1321,5 @@ table.compare-table {
   .wakeup-text strong { font-size: 0.85rem; }
 }
 
-/* Sleek Glassmorphic Modal */
-.modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(13,13,26,0.85);
-  backdrop-filter: blur(8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  opacity: 1;
-  transition: opacity var(--transition);
-}
-.modal.hidden {
-  display: none !important;
-}
-.modal-content {
-  background: rgba(26, 26, 46, 0.96);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 28px;
-  width: 90%;
-  max-width: 480px;
-  position: relative;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.6);
-  animation: modalFadeIn 0.25s ease;
-}
-@keyframes modalFadeIn {
-  from { transform: scale(0.95); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
-}
-.modal-close {
-  position: absolute;
-  top: 15px;
-  right: 20px;
-  font-size: 1.5rem;
-  cursor: pointer;
-  color: var(--text-secondary);
-  transition: color var(--transition);
-}
-.modal-close:hover {
-  color: var(--danger);
-}
+
 

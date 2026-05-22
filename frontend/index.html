@@ -73,7 +73,7 @@
         </label>
         <input type="file" id="csv-upload" accept=".csv" multiple style="display:none" />
         <button class="btn btn-primary btn-sm" id="btn-load-defaults">Load Default Datasets</button>
-        <button class="btn btn-secondary btn-sm" id="btn-settings" title="Connection Settings">⚙️ Server</button>
+
         <select id="dataset-select" class="select-box" title="Load datasets first" disabled style="opacity:0.5;cursor:not-allowed">
           <option value="">— load datasets first —</option>
         </select>
@@ -249,24 +249,7 @@
     <div class="wakeup-bar-track"><div class="wakeup-bar" id="wakeup-bar"></div></div>
   </div>
 
-  <!-- SETTINGS MODAL -->
-  <div id="settings-modal" class="modal hidden">
-    <div class="modal-content">
-      <span class="modal-close" id="modal-close">&times;</span>
-      <h3>⚙️ Connection Settings</h3>
-      <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.5;">
-        Link this frontend with your custom Render server or local development backend dynamically.
-      </p>
-      <div class="form-group" style="margin-bottom: 18px;">
-        <label for="input-backend-url" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-primary);">Backend Server URL</label>
-        <input type="text" id="input-backend-url" class="select-box" style="width: 100%; font-size: 0.85rem; padding: 9px;" placeholder="e.g. https://my-backend.onrender.com" />
-      </div>
-      <div style="display: flex; gap: 10px; justify-content: flex-end;">
-        <button class="btn btn-secondary btn-sm" id="btn-reset-backend">Reset</button>
-        <button class="btn btn-primary btn-sm" id="btn-save-backend">Save Settings</button>
-      </div>
-    </div>
-  </div>
+
 
   <script src="app.js"></script>
 </body>

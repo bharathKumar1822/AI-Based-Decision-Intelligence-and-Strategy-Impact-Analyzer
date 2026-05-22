@@ -2,15 +2,9 @@
    app.js  —  Decision Intelligence Analyzer frontend logic
    ============================================================ */
 
-// Get backend URL from localStorage or default to "/api"
-function getBackendBaseURL() {
-  const savedUrl = localStorage.getItem("backend_url");
-  if (savedUrl && savedUrl.trim() !== "") {
-    return savedUrl.trim().replace(/\/$/, "") + "/api";
-  }
-  return "/api";
-}
-const API = getBackendBaseURL();
+// Always use relative /api — Vercel proxy rewrites to Render in production,
+// and Flask serves /api directly in local development.
+const API = "/api";
 
 // ── State ──────────────────────────────────────────────────
 let activeDataset = "";
@@ -27,12 +21,6 @@ const toast           = document.getElementById("toast");
 const hamburger       = document.getElementById("hamburger");
 const sidebar         = document.getElementById("sidebar");
 const liveDot         = document.getElementById("live-indicator");
-const settingsModal   = document.getElementById("settings-modal");
-const btnSettings     = document.getElementById("btn-settings");
-const modalClose      = document.getElementById("modal-close");
-const btnSaveBackend  = document.getElementById("btn-save-backend");
-const btnResetBackend = document.getElementById("btn-reset-backend");
-const inputBackendUrl = document.getElementById("input-backend-url");
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -1050,58 +1038,7 @@ async function startWakeupSequence(maxWaitMs = 90000) {
   }
 })();
 
-// ── Connection Settings Modal Event Listeners ──────────────
-if (btnSettings && settingsModal) {
-  btnSettings.addEventListener("click", () => {
-    const savedUrl = localStorage.getItem("backend_url") || "";
-    if (inputBackendUrl) inputBackendUrl.value = savedUrl;
-    settingsModal.classList.remove("hidden");
-  });
-}
 
-if (modalClose && settingsModal) {
-  modalClose.addEventListener("click", () => {
-    settingsModal.classList.add("hidden");
-  });
-}
-
-// Close modal if user clicks outside of it
-window.addEventListener("click", (e) => {
-  if (e.target === settingsModal) {
-    settingsModal.classList.add("hidden");
-  }
-});
-
-if (btnSaveBackend) {
-  btnSaveBackend.addEventListener("click", () => {
-    const rawUrl = inputBackendUrl.value.trim();
-    if (rawUrl) {
-      if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
-        showToast("❌ Backend URL must start with http:// or https://", "error");
-        return;
-      }
-      localStorage.setItem("backend_url", rawUrl);
-      showToast("💾 Connection settings saved! Reloading analyzer...", "success");
-    } else {
-      localStorage.removeItem("backend_url");
-      showToast("🗑️ Connection settings reset! Reloading analyzer...", "success");
-    }
-    setTimeout(() => {
-      window.location.reload();
-    }, 1500);
-  });
-}
-
-if (btnResetBackend) {
-  btnResetBackend.addEventListener("click", () => {
-    localStorage.removeItem("backend_url");
-    if (inputBackendUrl) inputBackendUrl.value = "";
-    showToast("↺ Connection settings reset to default! Reloading analyzer...", "success");
-    setTimeout(() => {
-      window.location.reload();
-    }, 1500);
-  });
-}
 
 async function loadEngine() {
   const c = document.getElementById("engine-content");
