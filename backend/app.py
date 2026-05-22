@@ -1659,6 +1659,42 @@ def ping():
     return jsonify({"status": "ok", "ts": datetime.datetime.utcnow().isoformat()})
 
 
+# ── Keep-Alive Self-Pinger Daemon ───────────────────────────────────────
+# To prevent Render free tier from sleeping, we periodically ping ourselves externally.
+def keep_alive_ping_loop():
+    import time
+    import urllib.request
+    
+    # Wait 30 seconds after startup before starting the ping loop
+    time.sleep(30)
+    
+    self_url = os.environ.get("RENDER_EXTERNAL_URL", "https://ai-based-decision-intelligence-and-hh6v.onrender.com")
+    ping_url = f"{self_url.rstrip('/')}/api/ping"
+    
+    print(f"[Keep-Alive] Starting background self-ping loop for {ping_url}", flush=True)
+    
+    while True:
+        try:
+            req = urllib.request.Request(
+                ping_url, 
+                headers={'User-Agent': 'KeepAlive-Bot/1.0'}
+            )
+            with urllib.request.urlopen(req, timeout=15) as response:
+                if response.status == 200:
+                    print(f"[Keep-Alive] Ping successful at {datetime.datetime.utcnow().isoformat()}", flush=True)
+                else:
+                    print(f"[Keep-Alive] Ping returned status {response.status} at {datetime.datetime.utcnow().isoformat()}", flush=True)
+        except Exception as e:
+            print(f"[Keep-Alive] Ping failed at {datetime.datetime.utcnow().isoformat()}: {e}", flush=True)
+        
+        # Sleep for 10 minutes (600 seconds)
+        time.sleep(600)
+
+# Start keep-alive thread in the background
+threading.Thread(target=keep_alive_ping_loop, daemon=True).start()
+
+
+
 # ── Live Refresh Status ────────────────────────────────────────────
 
 @app.route("/api/refresh-status", methods=["GET"])

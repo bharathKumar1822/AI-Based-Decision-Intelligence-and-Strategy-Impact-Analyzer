@@ -1220,6 +1220,7 @@ table.compare-table {
    WAKE-UP BANNER (Render cold-start)
 ================================================================ */
 .wakeup-banner {
+  display: none !important;
   position: fixed;
   bottom: 0; left: 0; right: 0;
   z-index: 1100;
@@ -1229,7 +1230,7 @@ table.compare-table {
   animation: wakeupSlideUp 0.4s ease;
   box-shadow: 0 -8px 40px rgba(108, 99, 255, 0.2);
 }
-.wakeup-banner.hidden { display: none; }
+.wakeup-banner.hidden { display: none !important; }
 
 @keyframes wakeupSlideUp {
   from { transform: translateY(100%); opacity: 0; }
