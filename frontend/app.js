@@ -9,6 +9,7 @@ const API = "/api";
 // ── State ──────────────────────────────────────────────────
 let activeDataset = "";
 let activeTab     = "overview";
+let _wasOffline   = false;   // tracks live-status for wake-up banner
 
 // ── DOM refs ───────────────────────────────────────────────
 const datasetSelect   = document.getElementById("dataset-select");
@@ -19,6 +20,7 @@ const loadingMsg      = document.getElementById("loading-msg");
 const toast           = document.getElementById("toast");
 const hamburger       = document.getElementById("hamburger");
 const sidebar         = document.getElementById("sidebar");
+const liveDot         = document.getElementById("live-indicator");
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -950,14 +952,89 @@ async function loadConclusion() {
 
 // ── Bootstrap ──────────────────────────────────────────────
 
+// Wake-up banner elements
+const wakeupBanner = document.getElementById("wakeup-banner");
+const wakeupSub    = document.getElementById("wakeup-sub");
+const wakeupTimer  = document.getElementById("wakeup-timer");
+const wakeupBar    = document.getElementById("wakeup-bar");
+
+let _wakeupActive = false;    // banner is currently showing
+let _serverOnline = false;    // we've had at least one successful ping
+
+/**
+ * Show the warm-up banner and silently retry pinging the backend every 5s
+ * for up to maxWaitMs ms.  Dismisses itself when server responds.
+ */
+async function startWakeupSequence(maxWaitMs = 90000) {
+  if (_wakeupActive) return;
+  _wakeupActive = true;
+
+  // Show banner
+  wakeupBanner.classList.remove("hidden", "online");
+  wakeupBar.style.width = "0%";
+  const startMs = Date.now();
+
+  // Animate progress bar over maxWaitMs
+  const barTimer = setInterval(() => {
+    const elapsed = Date.now() - startMs;
+    const pct = Math.min(95, (elapsed / maxWaitMs) * 100);
+    wakeupBar.style.width = pct + "%";
+    const secsLeft = Math.max(0, Math.round((maxWaitMs - elapsed) / 1000));
+    wakeupTimer.textContent = `⏱ ~${secsLeft}s`;
+    wakeupSub.textContent = pct < 30
+      ? "Render free plan spins down after inactivity. Auto-connecting — please wait."
+      : pct < 65
+        ? "Server is booting Python + loading ML libraries…"
+        : "Almost ready — finalising server startup…";
+  }, 1000);
+
+  // Poll every 5s until server responds
+  const pollTimer = setInterval(async () => {
+    if (Date.now() - startMs > maxWaitMs) {
+      clearInterval(pollTimer);
+      clearInterval(barTimer);
+      _wakeupActive = false;
+      wakeupSub.textContent = "Server did not respond. Refresh the page to try again.";
+      wakeupTimer.textContent = "❌ Timed out";
+      wakeupBar.style.width = "100%";
+      wakeupBar.style.background = "var(--danger)";
+      return;
+    }
+    try {
+      await apiFetch("/ping");    // lightweight — no ML, no data
+      // ✅ Server is up!
+      clearInterval(pollTimer);
+      clearInterval(barTimer);
+      _serverOnline = true;
+      _wasOffline   = false;
+      // Switch banner to success state
+      wakeupBanner.classList.add("online");
+      wakeupBar.style.transition = "width 0.4s ease";
+      wakeupBar.style.width = "100%";
+      wakeupSub.textContent = "Backend is online! You can now load datasets.";
+      wakeupTimer.textContent = "✅ Connected";
+      liveDot.classList.remove("offline");
+      // Auto-dismiss after 2.5s
+      setTimeout(() => {
+        wakeupBanner.classList.add("hidden");
+        _wakeupActive = false;
+      }, 2500);
+    } catch (_) {
+      // still offline — keep polling
+    }
+  }, 5000);
+}
+
 (async function init() {
   // ALWAYS start locked — user must click "Load Default Datasets"
   lockDropdown();
   try {
-    // Use retry on initial load — Render free tier may be cold-starting (30-60s)
-    await apiFetchWithRetry("/datasets");
+    // Quick ping to see if Render is already awake
+    await apiFetch("/ping");
+    _serverOnline = true;
   } catch(e) {
-    showToast("⚠️ Backend unreachable. If on Render free plan, wait 60s and refresh the page.", "error");
+    // Server is cold-starting — show the wake-up banner
+    startWakeupSequence(90000);
   }
 })();
 
@@ -1212,25 +1289,32 @@ if (exportBtn) {
 }
 
 // ── LIVE REFRESH STATUS ─────────────────────────────────────
-const liveDot = document.getElementById("live-indicator");
-let _wasOffline = false;
-
 async function checkLiveStatus() {
   try {
     const data = await apiFetch("/refresh-status");
+    // Server just came back after being offline
     if (_wasOffline) {
-      showToast("✅ Backend is back online!", "success");
       _wasOffline = false;
+      showToast("✅ Backend is back online!", "success");
+      if (_wakeupActive) {
+        // If wake-up banner is showing, dismiss it cleanly
+        wakeupBanner.classList.add("online");
+        wakeupSub.textContent = "Backend is online! You can now load datasets.";
+        wakeupTimer.textContent = "✅ Connected";
+        wakeupBar.style.width = "100%";
+        setTimeout(() => { wakeupBanner.classList.add("hidden"); _wakeupActive = false; }, 2500);
+      }
     }
     liveDot.classList.remove("offline");
     liveDot.title = `Backend live · ${data.datasets_loaded} dataset(s) · ${data.server_time}`;
   } catch {
-    if (!_wasOffline) {
-      showToast("🔴 Backend offline or waking up (Render free plan). Please wait 30–60s and retry.", "error");
-      _wasOffline = true;
-    }
     liveDot.classList.add("offline");
-    liveDot.title = "Backend offline — Render may be waking up (free plan spins down after inactivity)";
+    liveDot.title = "Backend waking up (Render free plan)";
+    if (!_wasOffline) {
+      _wasOffline = true;
+      // Don't show a toast — the wake-up banner handles UX
+      if (!_wakeupActive) startWakeupSequence(90000);
+    }
   }
 }
 checkLiveStatus();
