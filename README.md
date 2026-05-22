@@ -27,7 +27,6 @@
 - 💡 **Recommendations** — AI-generated step-by-step action plans with do/don't guidance
 - ⚖️ **Company Comparison** — Multi-dataset side-by-side analysis with charts
 - 🏁 **Conclusion & Report** — AI-generated project summary with PDF print support
-- 💬 **AI Chat Assistant** — Text & voice Q&A about your data
 
 ---
 
@@ -155,7 +154,6 @@ No other environment variables are required. The app uses in-memory storage for 
 | GET | `/api/decision-engine/<name>` | AI decision engine |
 | GET | `/api/compare` | Multi-dataset comparison |
 | GET | `/api/conclusion` | Final AI-generated report |
-| POST | `/api/chat/<name>` | AI chat assistant |
 | GET | `/api/refresh-status` | Server health check |
 
 ---

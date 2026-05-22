@@ -17,20 +17,18 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import seaborn as sns
+import matplotlib.style as _mpl_style
 import numpy as np
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
-
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.tree import DecisionTreeRegressor
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error, r2_score
 from scipy import stats as sp_stats
 
-sns.set_style("whitegrid")
+# Apply a dark grid style without seaborn (avoids seaborn's blocking font-scan)
+try:
+    _mpl_style.use("dark_background")
+except Exception:
+    pass
 
 # ── Paths ──────────────────────────────────────────────────────────
 ROOT_DIR     = Path(__file__).parent.parent
@@ -39,31 +37,9 @@ FRONTEND_DIR = ROOT_DIR / "frontend"
 app = Flask(__name__, static_folder=str(FRONTEND_DIR), static_url_path="")
 
 # ── CORS: allow Vercel frontend + local development ────────────────
-# Explicitly list all trusted origins. Add any custom domain here too.
-import re as _re
-
-def _cors_origin_check(origin):
-    """Allow the Vercel project domain, all Vercel preview URLs, and localhost."""
-    if origin is None:
-        return False
-    # Any deployment of this project on Vercel (production + all preview slugs)
-    # Matches: decision-intelligence-frontend-iota.vercel.app
-    #          decision-intelligence-frontend-abc123-user.vercel.app  (preview)
-    #          decision-intelligence-frontend.vercel.app              (canonical)
-    if _re.match(
-        r"https://decision-intelligence-frontend(-[a-z0-9]+)*\.vercel\.app",
-        origin
-    ):
-        return True
-    # Local development
-    if origin in ("http://localhost:5000", "http://localhost:3000",
-                  "http://127.0.0.1:5000", "http://127.0.0.1:3000"):
-        return True
-    return False
-
 CORS(
     app,
-    resources={r"/api/*": {"origins": _cors_origin_check}},
+    resources={r"/api/*": {"origins": "*"}},
     supports_credentials=False,
 )
 
@@ -97,6 +73,16 @@ def clean_df(df: pd.DataFrame) -> pd.DataFrame:
 
 def run_ml(df: pd.DataFrame) -> dict:
     """Train LR / DT / RF, return metrics + predictions."""
+    # Lazy imports — keeps Flask startup instant; sklearn loads on first ML call
+    try:
+        from sklearn.model_selection import train_test_split as _tts
+        from sklearn.linear_model import LinearRegression as _LR
+        from sklearn.tree import DecisionTreeRegressor as _DT
+        from sklearn.ensemble import RandomForestRegressor as _RF
+        from sklearn.metrics import mean_squared_error as _mse, r2_score as _r2
+    except ImportError as e:
+        return {"error": f"scikit-learn not available: {e}"}
+
     result = {}
     if not {"Sales", "Quantity", "Profit"}.issubset(df.columns):
         return result
@@ -111,14 +97,14 @@ def run_ml(df: pd.DataFrame) -> dict:
     features = df_sample[["Sales", "Quantity"]].values
     target   = df_sample["Profit"].values
 
-    X_tr, X_te, y_tr, y_te = train_test_split(
+    X_tr, X_te, y_tr, y_te = _tts(
         features, target, test_size=0.2, random_state=42
     )
 
     models = {
-        "Linear Regression": LinearRegression(),
-        "Decision Tree":     DecisionTreeRegressor(max_depth=8, min_samples_split=10, random_state=42),
-        "Random Forest":     RandomForestRegressor(n_estimators=5, max_depth=6, min_samples_split=10, random_state=42, n_jobs=1),
+        "Linear Regression": _LR(),
+        "Decision Tree":     _DT(max_depth=8, min_samples_split=10, random_state=42),
+        "Random Forest":     _RF(n_estimators=5, max_depth=6, min_samples_split=10, random_state=42, n_jobs=1),
     }
 
     for name, mdl in models.items():
@@ -126,8 +112,8 @@ def run_ml(df: pd.DataFrame) -> dict:
         pred = mdl.predict(X_te)
         key  = name.lower().replace(" ", "_")
         result[key] = {
-            "mse": round(float(mean_squared_error(y_te, pred)), 4),
-            "r2":  round(float(r2_score(y_te, pred)), 4),
+            "mse": round(float(_mse(y_te, pred)), 4),
+            "r2":  round(float(_r2(y_te, pred)), 4),
             "avg_predicted_profit": round(float(pred.mean()), 2),
         }
 
@@ -1405,6 +1391,13 @@ def explain(name):
     if not {"Sales", "Quantity", "Profit"}.issubset(df.columns):
         return jsonify({"error": "Required columns missing"}), 400
 
+    # Lazy imports — keeps Flask startup instant
+    try:
+        from sklearn.model_selection import train_test_split as _tts
+        from sklearn.ensemble import RandomForestRegressor as _RF
+    except ImportError as e:
+        return jsonify({"error": f"scikit-learn not available: {e}"}), 500
+
     # Subsample for extremely fast training on large datasets
     max_train_samples = 10000
     if len(df) > max_train_samples:
@@ -1414,9 +1407,9 @@ def explain(name):
 
     features = df_sample[["Sales", "Quantity"]].values
     target   = df_sample["Profit"].values
-    X_tr, X_te, y_tr, y_te = train_test_split(features, target, test_size=0.2, random_state=42)
+    X_tr, X_te, y_tr, y_te = _tts(features, target, test_size=0.2, random_state=42)
 
-    rf          = RandomForestRegressor(n_estimators=20, max_depth=10, min_samples_split=10, random_state=42, n_jobs=-1)
+    rf          = _RF(n_estimators=20, max_depth=10, min_samples_split=10, random_state=42, n_jobs=-1)
     rf.fit(X_tr, y_tr)
     importances = rf.feature_importances_.tolist()
 
