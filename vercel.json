@@ -1,6 +1,13 @@
 {
   "version": 2,
+  "name": "decision-intelligence-project",
   "cleanUrls": true,
+  "builds": [
+    {
+      "src": "frontend/**",
+      "use": "@vercel/static"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/:path*",
