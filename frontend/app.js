@@ -70,8 +70,6 @@ async function apiFetchWithRetry(path, opts = {}, maxRetries = 5, baseDelayMs = 
       const isNetworkError = e.message === "Failed to fetch" || e.message.includes("NetworkError") || e.message.includes("502") || e.message.includes("503") || e.message.includes("504");
       if (!isNetworkError || attempt === maxRetries) throw e;
       const delay = baseDelayMs * Math.pow(1.5, attempt);
-      const secondsLeft = Math.round((baseDelayMs * (Math.pow(1.5, maxRetries + 1) - 1) / (1.5 - 1) - delay * attempt) / 1000);
-      showToast(`⏳ Server is waking up… retrying (attempt ${attempt + 1}/${maxRetries}). Please wait ~${Math.round(delay / 1000)}s`, "info");
       await new Promise(r => setTimeout(r, delay));
     }
   }
@@ -956,73 +954,14 @@ async function loadConclusion() {
 
 // ── Bootstrap ──────────────────────────────────────────────
 
-// Wake-up banner elements
-const wakeupBanner = document.getElementById("wakeup-banner");
-const wakeupSub    = document.getElementById("wakeup-sub");
-const wakeupTimer  = document.getElementById("wakeup-timer");
-const wakeupBar    = document.getElementById("wakeup-bar");
-
-let _wakeupActive = false;    // banner is currently showing
-let _serverOnline = false;    // we've had at least one successful ping
-
-/**
- * Automatically fetch default datasets, populate dropdown, render chips,
- * select the first dataset, and switch to overview tab.
- */
-async function autoLoadDefaults() {
-  showLoading("Automatically loading default datasets…");
-  try {
-    const res         = await apiFetchWithRetry("/load-defaults", { method: "POST" }, 3, 2000);
-    const loadedNames = res.loaded || [];
-
-    if (loadedNames.length) {
-      unlockDropdown(loadedNames);
-      // Auto-select the first dataset to make it instantly usable
-      activeDataset = loadedNames[0];
-      datasetSelect.value = activeDataset;
-      renderDatasetChips(loadedNames);
-      
-      // Auto-render overview tab
-      switchTab("overview");
-      showToast(`✅ Default datasets loaded automatically!`, "success");
-    } else {
-      showToast("⚠️ No default datasets were loaded", "error");
-    }
-  } catch(e) {
-    showToast("❌ Auto-load failed: " + e.message, "error");
-  } finally {
-    hideLoading();
-  }
-}
-
-/**
- * Show the warm-up banner and silently retry pinging the backend every 5s
- * for up to maxWaitMs ms. (Intrusive countdown banner disabled).
- */
-async function startWakeupSequence(maxWaitMs = 90000) {
-  // Silent no-op, handled gracefully by background retry loop
-}
-
 (async function init() {
   // ALWAYS start locked
   lockDropdown();
   try {
-    // Quick ping with retry to see if Render is awake or waking up
+    // Quick ping with retry to see if Render is awake or waking up (silently in background)
     await apiFetchWithRetry("/ping", {}, 10, 4000);
-    _serverOnline = true;
-    
-    // Check if there are already datasets loaded on the server (e.g. from previous sessions)
-    const existing = await refreshDatasetList(true);
-    activeDataset = "";
-    datasetSelect.value = "";
-    loadOverview();
-    if (existing && existing.length) {
-      showToast("🔌 Connected to backend server. Please select a dataset to begin.", "success");
-    } else {
-      showToast("🔌 Connected to backend server. Please click 'Load Default Datasets' or upload your own to begin.", "success");
-    }
   } catch(e) {
-    showToast("⚠️ Could not connect to backend server. Please refresh or try again later.", "error");
+    // Silent background boot
   }
 })();
 
@@ -1286,7 +1225,6 @@ async function checkLiveStatus() {
     // Server just came back after being offline
     if (_wasOffline) {
       _wasOffline = false;
-      showToast("✅ Backend is online!", "success");
     }
     liveDot.classList.remove("offline");
     liveDot.title = `Backend live · ${data.datasets_loaded} dataset(s) · ${data.server_time}`;

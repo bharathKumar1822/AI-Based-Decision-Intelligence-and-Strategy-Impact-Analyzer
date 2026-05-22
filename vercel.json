@@ -1,11 +1,14 @@
 {
   "version": 2,
-  "outputDirectory": "frontend",
   "cleanUrls": true,
   "rewrites": [
     {
       "source": "/api/:path*",
       "destination": "https://ai-based-decision-intelligence-and-hh6v.onrender.com/api/:path*"
+    },
+    {
+      "source": "/:path*",
+      "destination": "/frontend/:path*"
     }
   ]
 }
