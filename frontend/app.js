@@ -106,8 +106,10 @@ function switchTab(tab) {
 }
 
 function loadTab(tab) {
-  // conclusion and compare work across all loaded datasets — no single activeDataset needed
-  const needsDataset = !["compare", "overview", "conclusion", "engine", "anomaly", "explainability"].includes(tab);
+  // GenAI tabs and conclusion/compare work without a single activeDataset
+  const noDatasetNeeded = ["compare", "overview", "conclusion", "engine", "anomaly",
+                           "explainability", "copilot", "rag", "agents", "aiforecast", "aistrategy"];
+  const needsDataset = !noDatasetNeeded.includes(tab);
   if (needsDataset && !activeDataset) {
     showToast("Please load and select a dataset first.", "info");
     return;
@@ -124,11 +126,35 @@ function loadTab(tab) {
     case "engine":          loadEngine();          break;
     case "anomaly":         loadAnomaly();         break;
     case "explainability":  loadExplainability();  break;
-
+    // ── GenAI Tabs (handled in genai.js) ──
+    case "copilot":         if (typeof loadCopilot   === "function") loadCopilot();   break;
+    case "rag":             if (typeof loadRAG       === "function") loadRAG();       break;
+    case "agents":          if (typeof loadAgents    === "function") loadAgents();    break;
+    case "aiforecast":      if (typeof loadAIForecast === "function") loadAIForecast(); break;
+    case "aistrategy":      if (typeof loadAIStrategy === "function") loadAIStrategy(); break;
   }
 }
 
 // ── Dataset Management ─────────────────────────────────────
+
+// ── Dark/Light Mode Toggle ─────────────────────────────────
+(function initTheme() {
+  const btn  = document.getElementById("theme-toggle");
+  const body = document.body;
+  const saved = localStorage.getItem("theme") || "dark";
+  if (saved === "light") {
+    body.classList.add("light-mode");
+    if (btn) btn.textContent = "☀️ Light";
+  }
+  if (btn) {
+    btn.addEventListener("click", () => {
+      const isLight = body.classList.toggle("light-mode");
+      btn.textContent = isLight ? "☀️ Light" : "🌙 Dark";
+      localStorage.setItem("theme", isLight ? "light" : "dark");
+    });
+  }
+})();
+
 
 // ── Dropdown lock/unlock helpers ──────────────────────────
 function lockDropdown() {

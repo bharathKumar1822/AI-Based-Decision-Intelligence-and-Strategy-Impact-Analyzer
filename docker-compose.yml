@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  # ── Flask Application ────────────────────────────────────────
+  app:
+    build: .
+    container_name: decision-intelligence-app
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3
+      - CHROMA_PERSIST_DIR=/app/chroma_db
+    volumes:
+      - ./chroma_db:/app/chroma_db    # Persist ChromaDB
+      - ./data:/app/data              # Persist datasets
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  # ── Ollama LLM Server ────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: decision-intelligence-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama     # Persist downloaded models
+    restart: unless-stopped
+    # Optional: enable GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+volumes:
+  ollama_data:
+    driver: local

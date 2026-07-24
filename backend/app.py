@@ -2,7 +2,29 @@
 backend/app.py
 Flask REST API + static frontend server
 for the AI-Based Decision Intelligence & Strategy Impact Analyzer
+
+v5.0 — GenAI Edition
+Extended with: Ollama LLM, AI Copilot, RAG, Multi-Agent, AI Strategy Generator,
+NL Forecasting, Rate Limiting, TTL Cache, Dark/Light Mode
 """
+
+import os
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    logger.info("[Config] .env loaded")
+except ImportError:
+    pass  # python-dotenv not installed — env vars must be set externally
 
 import os
 import io
@@ -42,6 +64,32 @@ CORS(
     resources={r"/api/*": {"origins": "*"}},
     supports_credentials=False,
 )
+
+# ── Rate Limiter ────────────────────────────────────────────────────
+try:
+    from backend.utils.rate_limiter import limiter
+    limiter.init_app(app)
+    logger.info("[Config] Rate limiter initialized")
+except Exception as _rl_err:
+    logger.warning(f"[Config] Rate limiter skipped: {_rl_err}")
+
+# ── Register GenAI Blueprints ───────────────────────────────────────
+try:
+    from backend.genai.copilot      import copilot_bp
+    from backend.genai.rag          import rag_bp
+    from backend.genai.agents       import agents_bp
+    from backend.genai.strategy_gen import strategy_bp
+    from backend.genai.predictive_nl import forecast_bp
+
+    app.register_blueprint(copilot_bp,  url_prefix="/api/genai")
+    app.register_blueprint(rag_bp,      url_prefix="/api/rag")
+    app.register_blueprint(agents_bp,   url_prefix="/api/agents")
+    app.register_blueprint(strategy_bp, url_prefix="/api/genai/strategy")
+    app.register_blueprint(forecast_bp, url_prefix="/api/genai/forecast")
+
+    logger.info("[GenAI] All blueprints registered successfully")
+except Exception as _bp_err:
+    logger.warning(f"[GenAI] Blueprint registration skipped: {_bp_err}")
 
 # ── In-memory store  (keyed by dataset name) ───────────────────────
 datasets: dict[str, pd.DataFrame] = {}
